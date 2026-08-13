@@ -20,8 +20,9 @@ export default function PaymentSuccessPage() {
       return;
     }
 
-    async function checkPayment() {
-      const result = await verifyPayment(reference);
+    // ✅ FIX: Pass reference as an explicitly typed string argument
+    async function checkPayment(ref: string) {
+      const result = await verifyPayment(ref);
       
       if (result.success && result.status === "success") {
         setStatus("success");
@@ -30,7 +31,7 @@ export default function PaymentSuccessPage() {
       }
     }
 
-    checkPayment();
+    checkPayment(reference);
   }, [reference]);
 
   if (status === "loading") {
