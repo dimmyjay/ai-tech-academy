@@ -1,4 +1,3 @@
-// app/auth/forgot-password/page.tsx
 "use client";
 
 import { useState, FormEvent } from "react";
@@ -159,9 +158,9 @@ export default function ForgotPasswordPage() {
               </Link>
             </div>
           ) : (
-            /* ========================================== */}
-            {/* STATE 2: EMAIL INPUT FORM */}
-            {/* ========================================== */}
+            /* ========================================== */
+            /* STATE 2: EMAIL INPUT FORM */
+            /* ========================================== */
             <>
               {/* Mobile Logo */}
               <Link href="/" className="flex items-center gap-3 mb-8 lg:hidden">
