@@ -38,7 +38,9 @@ function slugify(text = "") {
 export default function ProgressPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { enrollments: ctxEnrollments, loading: enrollmentsLoading } = useCourseContext();
+  
+  // ✅ FIX: Removed `loading: enrollmentsLoading` since it doesn't exist on CourseContextType
+  const { enrollments: ctxEnrollments } = useCourseContext();
 
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -261,7 +263,6 @@ export default function ProgressPage() {
       }
 
       // 2. ROBUST COMPLETED LESSONS COUNT
-           // 2. ROBUST COMPLETED LESSONS COUNT
       let completedCount = 0;
       const cl = enrollment.completedLessons;
       const lp = enrollment.lessonProgress || {};
@@ -384,7 +385,8 @@ export default function ProgressPage() {
     return arr.filter((e: any) => !findMatchingCourse(e));
   }, [localEnrollments, courses]);
 
-  if (authLoading || enrollmentsLoading || loading) {
+  // ✅ FIX: Removed `enrollmentsLoading` from the loading condition
+  if (authLoading || loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Loader size={48} message="Loading your learning path..." />
