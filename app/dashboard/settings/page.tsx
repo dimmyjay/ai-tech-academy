@@ -1,4 +1,4 @@
-// app/dashboard/settings/page.tsx
+// components/SettingsClient.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -22,9 +22,8 @@ import {
   ShieldCheck,
   Smartphone,
 } from "lucide-react";
-import Loader from "@/components/Loader";
 
-export default function SettingsPage() {
+export default function SettingsClient() {
   const router = useRouter();
   const { user, profile, loading: authLoading, logout } = useAuth();
   const { theme, setTheme, resolvedTheme } = useTheme();
@@ -46,9 +45,7 @@ export default function SettingsPage() {
     if (profile?.preferences?.notifications) {
       setNotifications(profile.preferences.notifications);
     }
-    // Also, if a theme is stored in profile preferences, apply it
     if (profile?.preferences?.theme) {
-      // Use setTheme from ThemeContext to apply stored theme on load
       setTheme(profile.preferences.theme);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,10 +61,7 @@ export default function SettingsPage() {
   // Persist theme choice and apply it
   const handleSetTheme = async (t: "light" | "dark" | "system") => {
     try {
-      // Apply immediately via ThemeContext
       setTheme(t);
-
-      // Persist to DB so it is remembered across devices
       if (user?.uid) {
         setIsSaving(true);
         const userRef = ref(db, `users/${user.uid}/preferences`);
@@ -87,12 +81,10 @@ export default function SettingsPage() {
     const updatedNotifs = { ...notifications, [key]: !notifications[key] };
     setNotifications(updatedNotifs);
 
-    // Save to Firebase
     if (user?.uid) {
       try {
         const userRef = ref(db, `users/${user.uid}/preferences`);
         await update(userRef, { notifications: updatedNotifs });
-
         setSaveStatus("success");
         setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (error) {
@@ -111,8 +103,8 @@ export default function SettingsPage() {
 
   if (authLoading || !profile) {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
-        <Loader size={48} message="Loading settings..." />
+      <div className="min-h-[60vh] flex items-center justify-center text-gray-500">
+        Loading settings...
       </div>
     );
   }
@@ -138,9 +130,7 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* ========================================== */}
       {/* 1. APPEARANCE (THEME) */}
-      {/* ========================================== */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8">
         <h2 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
           <Monitor size={20} className="text-orange-600" />
@@ -156,38 +146,13 @@ export default function SettingsPage() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-          {/* Light Mode */}
-          <ThemeCard
-            icon={Sun}
-            label="Light"
-            description="Classic bright look"
-            isActive={theme === "light"}
-            onClick={() => handleSetTheme("light")}
-          />
-
-          {/* Dark Mode */}
-          <ThemeCard
-            icon={Moon}
-            label="Dark"
-            description="Easy on the eyes"
-            isActive={theme === "dark"}
-            onClick={() => handleSetTheme("dark")}
-          />
-
-          {/* System Mode */}
-          <ThemeCard
-            icon={Monitor}
-            label="System"
-            description="Match your device"
-            isActive={theme === "system"}
-            onClick={() => handleSetTheme("system")}
-          />
+          <ThemeCard icon={Sun} label="Light" description="Classic bright look" isActive={theme === "light"} onClick={() => handleSetTheme("light")} />
+          <ThemeCard icon={Moon} label="Dark" description="Easy on the eyes" isActive={theme === "dark"} onClick={() => handleSetTheme("dark")} />
+          <ThemeCard icon={Monitor} label="System" description="Match your device" isActive={theme === "system"} onClick={() => handleSetTheme("system")} />
         </div>
       </div>
 
-      {/* ========================================== */}
       {/* 2. NOTIFICATIONS */}
-      {/* ========================================== */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8">
         <h2 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
           <Bell size={20} className="text-orange-600" />
@@ -196,40 +161,14 @@ export default function SettingsPage() {
         <p className="text-sm text-gray-500 mb-6">Decide which updates you want to receive in your inbox.</p>
 
         <div className="divide-y divide-gray-100">
-          <NotificationToggle
-            icon={GraduationCap}
-            title="Course Updates"
-            description="Get notified when new lessons or quizzes are added to your courses."
-            isEnabled={notifications.courseUpdates}
-            onToggle={() => handleToggleNotification("courseUpdates")}
-          />
-          <NotificationToggle
-            icon={Megaphone}
-            title="New Courses & Features"
-            description="Be the first to know when we launch new AI-generated courses."
-            isEnabled={notifications.newCourses}
-            onToggle={() => handleToggleNotification("newCourses")}
-          />
-          <NotificationToggle
-            icon={Mail}
-            title="Promotions & Discounts"
-            description="Receive exclusive offers, discount codes, and special announcements."
-            isEnabled={notifications.promotions}
-            onToggle={() => handleToggleNotification("promotions")}
-          />
-          <NotificationToggle
-            icon={Mail}
-            title="Weekly Learning Digest"
-            description="A weekly summary of your progress and recommended next steps."
-            isEnabled={notifications.weeklyDigest}
-            onToggle={() => handleToggleNotification("weeklyDigest")}
-          />
+          <NotificationToggle icon={GraduationCap} title="Course Updates" description="Get notified when new lessons or quizzes are added to your courses." isEnabled={notifications.courseUpdates} onToggle={() => handleToggleNotification("courseUpdates")} />
+          <NotificationToggle icon={Megaphone} title="New Courses & Features" description="Be the first to know when we launch new AI-generated courses." isEnabled={notifications.newCourses} onToggle={() => handleToggleNotification("newCourses")} />
+          <NotificationToggle icon={Mail} title="Promotions & Discounts" description="Receive exclusive offers, discount codes, and special announcements." isEnabled={notifications.promotions} onToggle={() => handleToggleNotification("promotions")} />
+          <NotificationToggle icon={Mail} title="Weekly Learning Digest" description="A weekly summary of your progress and recommended next steps." isEnabled={notifications.weeklyDigest} onToggle={() => handleToggleNotification("weeklyDigest")} />
         </div>
       </div>
 
-      {/* ========================================== */}
       {/* 3. SECURITY & SESSIONS */}
-      {/* ========================================== */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 md:p-8">
         <h2 className="text-lg font-bold text-gray-900 mb-2 flex items-center gap-2">
           <ShieldCheck size={20} className="text-orange-600" />
@@ -263,9 +202,7 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* ========================================== */}
       {/* 4. DANGER ZONE */}
-      {/* ========================================== */}
       <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-6 md:p-8">
         <h2 className="text-lg font-bold text-red-600 mb-2 flex items-center gap-2">
           <Trash2 size={20} />
@@ -288,29 +225,9 @@ export default function SettingsPage() {
   );
 }
 
-// ==========================================
-// HELPER COMPONENT: Theme Card
-// ==========================================
-function ThemeCard({
-  icon: Icon,
-  label,
-  description,
-  isActive,
-  onClick,
-}: {
-  icon: any;
-  label: string;
-  description: string;
-  isActive: boolean;
-  onClick: () => void;
-}) {
+function ThemeCard({ icon: Icon, label, description, isActive, onClick }: { icon: any; label: string; description: string; isActive: boolean; onClick: () => void }) {
   return (
-    <button
-      onClick={onClick}
-      className={`relative p-5 rounded-2xl border-2 text-left transition-all duration-200 group ${
-        isActive ? "border-orange-500 bg-orange-50 shadow-md" : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm"
-      }`}
-    >
+    <button onClick={onClick} className={`relative p-5 rounded-2xl border-2 text-left transition-all duration-200 group ${isActive ? "border-orange-500 bg-orange-50 shadow-md" : "border-gray-200 bg-white hover:border-gray-300 hover:shadow-sm"}`}>
       {isActive && (
         <div className="absolute top-3 right-3 w-5 h-5 bg-orange-500 rounded-full flex items-center justify-center">
           <Check size={12} className="text-white" strokeWidth={3} />
@@ -325,22 +242,7 @@ function ThemeCard({
   );
 }
 
-// ==========================================
-// HELPER COMPONENT: Notification Toggle
-// ==========================================
-function NotificationToggle({
-  icon: Icon,
-  title,
-  description,
-  isEnabled,
-  onToggle,
-}: {
-  icon: any;
-  title: string;
-  description: string;
-  isEnabled: boolean;
-  onToggle: () => void;
-}) {
+function NotificationToggle({ icon: Icon, title, description, isEnabled, onToggle }: { icon: any; title: string; description: string; isEnabled: boolean; onToggle: () => void }) {
   return (
     <div className="flex items-center justify-between py-4 first:pt-0 last:pb-0">
       <div className="flex items-start gap-3 pr-4">
@@ -352,19 +254,8 @@ function NotificationToggle({
           <p className="text-xs text-gray-500 mt-0.5">{description}</p>
         </div>
       </div>
-
-      {/* Toggle Switch */}
-      <button
-        onClick={onToggle}
-        className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${
-          isEnabled ? "bg-orange-600" : "bg-gray-200"
-        }`}
-      >
-        <span
-          className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-            isEnabled ? "translate-x-5" : "translate-x-0"
-          }`}
-        />
+      <button onClick={onToggle} className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 ${isEnabled ? "bg-orange-600" : "bg-gray-200"}`}>
+        <span className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${isEnabled ? "translate-x-5" : "translate-x-0"}`} />
       </button>
     </div>
   );
