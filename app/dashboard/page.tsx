@@ -83,7 +83,7 @@ function calculateStreak(learningDays: string[]): number {
   return streak;
 }
 
-function calculateHoursLearned(enrollments: Enrollment[]): number {
+function calculateHoursLearned(enrollments: any[]): number {
   const AVG_MINUTES_PER_LESSON = 20;
   let totalMinutes = 0;
 
@@ -97,7 +97,7 @@ function calculateHoursLearned(enrollments: Enrollment[]): number {
       completedCount = Object.keys(cl).length;
     }
 
-    const lp = (e as any).lessonProgress || {};
+    const lp = e.lessonProgress || {};
     const progressCompleted = Object.values(lp).filter((v: any) => Number(v) >= 100).length;
     completedCount = Math.max(completedCount, progressCompleted);
 
@@ -113,13 +113,15 @@ function calculateHoursLearned(enrollments: Enrollment[]): number {
 export default function DashboardPage() {
   const router = useRouter();
   const { user, profile, loading: authLoading } = useAuth();
-  const { enrollments: rawEnrollments = [], loading: enrollmentsLoading } = useCourseContext();
+  
+  // ✅ FIX: Removed `loading: enrollmentsLoading` since it doesn't exist on CourseContextType
+  const { enrollments: rawEnrollments = [] } = useCourseContext();
 
   // ✅ Normalize enrollments to ALWAYS be an array
-  const enrollments: Enrollment[] = useMemo(() => {
-    if (Array.isArray(rawEnrollments)) return rawEnrollments as Enrollment[];
+  const enrollments: any[] = useMemo(() => {
+    if (Array.isArray(rawEnrollments)) return rawEnrollments as any[];
     if (rawEnrollments && typeof rawEnrollments === "object") {
-      return Object.values(rawEnrollments) as Enrollment[];
+      return Object.values(rawEnrollments) as any[];
     }
     return [];
   }, [rawEnrollments]);
@@ -219,7 +221,7 @@ export default function DashboardPage() {
         let count = 0;
         if (Array.isArray(cl)) count = cl.filter(Boolean).length;
         else if (cl && typeof cl === "object") count = Object.keys(cl).length;
-        const lp = (e as any).lessonProgress || {};
+        const lp = e.lessonProgress || {};
         const progressCount = Object.values(lp).filter((v: any) => Number(v) >= 100).length;
         return acc + Math.max(count, progressCount);
       }, 0);
@@ -269,7 +271,8 @@ export default function DashboardPage() {
     return () => unsubscribe();
   }, [user?.uid]);
 
-  if (authLoading || enrollmentsLoading || loading) {
+  // ✅ FIX: Removed `enrollmentsLoading` from the condition
+  if (authLoading || loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
         <Loader size={48} message="Loading your dashboard..." />
@@ -283,7 +286,7 @@ export default function DashboardPage() {
   // DERIVED DATA
   // ==========================================
   const activeEnrollments = enrollments.filter(
-    (e: Enrollment) => e.status === "active" && (e.progress ?? 0) < 100
+    (e: any) => e.status === "active" && (e.progress ?? 0) < 100
   );
 
   const recentEnrollment = activeEnrollments
@@ -294,7 +297,7 @@ export default function DashboardPage() {
     ? courses.find((c) => c.id === recentEnrollment.courseId)
     : null;
 
-  const enrolledCourseIds = enrollments.map((e: Enrollment) => e.courseId);
+  const enrolledCourseIds = enrollments.map((e: any) => e.courseId);
   const recommendedCourses = courses.filter((c) => !enrolledCourseIds.includes(c.id)).slice(0, 6);
 
   const firstName = profile?.name?.split(" ")[0] || "Student";
