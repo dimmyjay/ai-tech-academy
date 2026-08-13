@@ -1,5 +1,6 @@
-
 // app/dashboard/settings/page.tsx
+"use client"; // ✅ REQUIRED: next/dynamic with ssr: false must be in a Client Component
+
 import dynamic from "next/dynamic";
 import Loader from "@/components/Loader";
 
@@ -16,5 +17,3 @@ const SettingsClient = dynamic(() => import("@/components/SettingsClient"), {
 export default function SettingsPage() {
   return <SettingsClient />;
 }
-
-
