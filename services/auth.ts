@@ -23,6 +23,9 @@ export interface RegisterData {
  * Creates the user in Firebase Auth and saves their profile to the Realtime Database.
  */
 export async function registerUser(data: RegisterData): Promise<User> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth || !db) throw new Error("Firebase is not initialized.");
+  
   const { email, password, name } = data;
 
   // 1. Create user in Firebase Auth
@@ -51,6 +54,9 @@ export async function registerUser(data: RegisterData): Promise<User> {
  * 2. Sign in with Email & Password
  */
 export async function loginUser(email: string, password: string): Promise<User> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth || !db) throw new Error("Firebase is not initialized.");
+  
   const userCredential = await signInWithEmailAndPassword(auth, email, password);
   const user = userCredential.user;
 
@@ -66,6 +72,9 @@ export async function loginUser(email: string, password: string): Promise<User> 
  * If the user is new, it automatically creates their profile in the database.
  */
 export async function loginWithGoogle(): Promise<User> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth || !db || !googleProvider) throw new Error("Firebase is not initialized.");
+  
   const userCredential = await signInWithPopup(auth, googleProvider);
   const user = userCredential.user;
 
@@ -100,6 +109,9 @@ export async function loginWithGoogle(): Promise<User> {
  * 4. Sign out user
  */
 export async function logoutUser(): Promise<void> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth) throw new Error("Firebase is not initialized.");
+  
   await firebaseSignOut(auth);
 }
 
@@ -107,6 +119,9 @@ export async function logoutUser(): Promise<void> {
  * 5. Send password reset email
  */
 export async function sendPasswordReset(email: string): Promise<void> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth) throw new Error("Firebase is not initialized.");
+  
   await sendPasswordResetEmail(auth, email);
 }
 
@@ -114,6 +129,9 @@ export async function sendPasswordReset(email: string): Promise<void> {
  * 6. Update user password (User must be currently signed in)
  */
 export async function changePassword(newPassword: string): Promise<void> {
+  // ✅ FIX: Guard against SSR / missing Firebase initialization
+  if (!auth) throw new Error("Firebase is not initialized.");
+  
   if (!auth.currentUser) {
     throw new Error("No user is currently signed in.");
   }
