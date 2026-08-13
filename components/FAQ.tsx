@@ -70,9 +70,11 @@ const faqs = [
 ];
 
 export default function FAQ() {
-  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  // ✅ FIX: Changed type from `number | null` to `string | null` to match uniqueIndex
+  const [openIndex, setOpenIndex] = useState<string | null>(null);
 
-  const toggleFAQ = (index: number) => {
+  // ✅ FIX: Changed parameter type from `number` to `string`
+  const toggleFAQ = (index: string) => {
     setOpenIndex(openIndex === index ? null : index);
   };
 
