@@ -64,7 +64,8 @@ export default function CertificateCard({
         jsPDF: { unit: "mm", format: "a4", orientation: "landscape" },
       };
 
-      await html2pdf().set(opt).from(element).save();
+      // ✅ FIX: Cast opt to `any` to bypass strict html2pdf.js literal type checking
+      await html2pdf().set(opt as any).from(element).save();
     } catch (err) {
       console.error("PDF generation error:", err);
       alert("Failed to generate PDF. Please try again.");
