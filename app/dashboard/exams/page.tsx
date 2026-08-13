@@ -42,7 +42,6 @@ export default function ExamsPage() {
   const ctx = useCourseContext();
   const rawEnrollments = ctx?.enrollments;
 
-  // ✅ FIX: Type as any[] to avoid strict interface mismatch errors from context
   const enrollments: any[] = useMemo(() => {
     if (Array.isArray(rawEnrollments)) return rawEnrollments as any[];
     if (rawEnrollments && typeof rawEnrollments === "object") {
@@ -56,7 +55,6 @@ export default function ExamsPage() {
   const [loading, setLoading] = useState(true);
   const generatingRef = useRef<Set<string>>(new Set());
 
-  // ✅ Fetch courses once
   useEffect(() => {
     let mounted = true;
     async function fetchCourses() {
@@ -74,14 +72,12 @@ export default function ExamsPage() {
     return () => { mounted = false; };
   }, []);
 
-  // ✅ Redirect if not authenticated
   useEffect(() => {
     if (!authLoading && !user) {
       router.push("/auth/signin");
     }
   }, [user, authLoading, router]);
 
-  // ✅ Auto-generate exam via Groq when course is completed but no exam exists
   const generateExamForCourse = async (course: Course) => {
     if (generatingRef.current.has(course.id)) return;
     generatingRef.current.add(course.id);
@@ -116,7 +112,6 @@ export default function ExamsPage() {
     }
   };
 
-  // ✅ CORE: Build exam list + trigger auto-generation
   useEffect(() => {
     async function buildExamList() {
       if (!user?.uid || courses.length === 0) {
@@ -125,7 +120,6 @@ export default function ExamsPage() {
       }
 
       try {
-        // 1. Fetch past exam attempts
         const attemptsRef = ref(db, "examAttempts");
         const userQuery = query(attemptsRef, orderByChild("userId"), equalTo(user.uid));
         const snapshot = await get(userQuery);
@@ -147,10 +141,7 @@ export default function ExamsPage() {
           });
         }
 
-        // 2. Determine completed courses
         const completedCourseIds = new Set<string>();
-
-        // ✅ BULLETPROOF FIX: Create a strictly typed local array to satisfy TypeScript
         const safeEnrollments: any[] = Array.isArray(enrollments) ? enrollments : [];
 
         safeEnrollments.forEach((enrollment: any) => {
@@ -188,10 +179,7 @@ export default function ExamsPage() {
           }
         });
 
-        // 3. Merge into exam map with RELIABLE course name resolution
         const examMap = new Map<string, MyExamData>();
-
-        // Helper to safely get course details
         const getCourseDetails = (cid: string) => {
           return courses.find((c) => String(c.id) === String(cid));
         };
@@ -211,7 +199,8 @@ export default function ExamsPage() {
             totalQuestions: 50,
             durationMinutes: 60,
             passingScore: 70,
-            status: attemptData?.latestAttempt?.passed ? "passed" : attemptData ? "failed" : "available",
+            // ✅ FIX: Changed "available" to "not_taken" to match ExamSummary interface
+            status: attemptData?.latestAttempt?.passed ? "passed" : attemptData ? "failed" : "not_taken",
             bestScore: attemptData?.bestScore ?? 0,
             certificateId: attemptData?.latestAttempt?.passed ? `cert_${attemptData.latestAttempt.id}` : undefined,
             isAvailable: true,
@@ -245,8 +234,9 @@ export default function ExamsPage() {
         const sortedExams = Array.from(examMap.values()).sort((a, b) => {
           if (a.isGenerating && !b.isGenerating) return -1;
           if (!a.isGenerating && b.isGenerating) return 1;
-          if (a.status === "available" && b.status !== "available") return -1;
-          if (b.status === "available" && a.status !== "available") return 1;
+          // ✅ FIX: Updated sort logic to use "not_taken"
+          if (a.status === "not_taken" && b.status !== "not_taken") return -1;
+          if (b.status === "not_taken" && a.status !== "not_taken") return 1;
           const aTime = attemptsByCourse.get(a.courseId)?.latestAttempt?.submittedAt || 0;
           const bTime = attemptsByCourse.get(b.courseId)?.latestAttempt?.submittedAt || 0;
           return bTime - aTime;
@@ -254,10 +244,10 @@ export default function ExamsPage() {
 
         setMyExams(sortedExams);
 
-        // Auto-generate for available exams
         sortedExams.forEach((exam) => {
+          // ✅ FIX: Updated auto-generate check to use "not_taken"
           if (
-            exam.status === "available" &&
+            exam.status === "not_taken" &&
             !exam.isGenerating &&
             !generatingRef.current.has(exam.courseId)
           ) {
@@ -276,12 +266,12 @@ export default function ExamsPage() {
     buildExamList();
   }, [user, courses, enrollments]);
 
-  // Stats
   const stats = useMemo(() => {
-    const taken = myExams.filter((e) => e.status !== "available");
+    // ✅ FIX: Updated stats calculation to use "not_taken"
+    const taken = myExams.filter((e) => e.status !== "not_taken");
     const passed = taken.filter((e) => e.status === "passed").length;
     const failed = taken.filter((e) => e.status === "failed").length;
-    const available = myExams.filter((e) => e.status === "available" && !e.isGenerating).length;
+    const available = myExams.filter((e) => e.status === "not_taken" && !e.isGenerating).length;
     const generating = myExams.filter((e) => e.isGenerating).length;
     const avgScore = taken.length > 0 
       ? Math.round(taken.reduce((acc, curr) => acc + (curr.bestScore || 0), 0) / taken.length) 
@@ -303,7 +293,6 @@ export default function ExamsPage() {
   return (
     <div className="space-y-8">
       
-      {/* HEADER */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 flex items-center gap-2">
@@ -324,9 +313,9 @@ export default function ExamsPage() {
         </Link>
       </div>
 
-      {/* STATS */}
       {myExams.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
+          {/* UI label stays "Available Exams" for the user, but filters by "not_taken" internally */}
           <StatBox icon={FileCheck} label="Available Exams" value={stats.available} color="text-blue-600" bg="bg-blue-50" />
           <StatBox icon={PlayCircle} label="Exams Taken" value={stats.total} color="text-indigo-600" bg="bg-indigo-50" />
           <StatBox icon={CheckCircle2} label="Passed" value={stats.passed} color="text-green-600" bg="bg-green-50" />
@@ -335,7 +324,6 @@ export default function ExamsPage() {
         </div>
       )}
 
-      {/* GENERATING BANNER */}
       {stats.generating > 0 && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-xl p-4 flex items-center gap-3">
           <RefreshCw className="text-blue-600 animate-spin" size={20} />
@@ -346,7 +334,6 @@ export default function ExamsPage() {
         </div>
       )}
 
-      {/* EXAMS GRID OR EMPTY STATE */}
       {myExams.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2">
           {myExams.map((exam) => (
@@ -358,7 +345,6 @@ export default function ExamsPage() {
           ))}
         </div>
       ) : (
-        /* Empty State */
         <div className="relative bg-white rounded-3xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="absolute top-0 right-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
           <div className="absolute bottom-0 left-0 w-64 h-64 bg-purple-50 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
