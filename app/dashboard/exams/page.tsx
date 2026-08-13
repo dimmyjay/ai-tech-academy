@@ -39,7 +39,17 @@ function slugify(text = "") {
 export default function ExamsPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
-  const { enrollments: ctxEnrollments } = useCourseContext();
+  const ctx = useCourseContext();
+  const rawEnrollments = ctx?.enrollments;
+
+  // ✅ Normalize enrollments to ALWAYS be an array
+  const enrollments: Enrollment[] = useMemo(() => {
+    if (Array.isArray(rawEnrollments)) return rawEnrollments as Enrollment[];
+    if (rawEnrollments && typeof rawEnrollments === "object") {
+      return Object.values(rawEnrollments) as Enrollment[];
+    }
+    return [];
+  }, [rawEnrollments]);
   
   const [courses, setCourses] = useState<Course[]>([]);
   const [myExams, setMyExams] = useState<MyExamData[]>([]);
@@ -138,10 +148,12 @@ export default function ExamsPage() {
         }
 
         // 2. Determine completed courses
-        const enrollments = ctxEnrollments || [];
         const completedCourseIds = new Set<string>();
 
-        enrollments.forEach((enrollment: any) => {
+        // ✅ BULLETPROOF FIX: Create a strictly typed local array to satisfy TypeScript
+        const safeEnrollments: any[] = Array.isArray(enrollments) ? enrollments : [];
+
+        safeEnrollments.forEach((enrollment: any) => {
           const cid = enrollment.courseId || enrollment.course_id;
           if (!cid) return;
 
@@ -195,7 +207,7 @@ export default function ExamsPage() {
             title: `${course.title} - Final Exam`,
             courseId: course.id,
             courseSlug: course.slug,
-            courseTitle: course.title, // ✅ Always use the clean course title from catalog
+            courseTitle: course.title,
             totalQuestions: 50,
             durationMinutes: 60,
             passingScore: 70,
@@ -218,7 +230,7 @@ export default function ExamsPage() {
             title: `${course.title} - Final Exam`,
             courseId: course.id,
             courseSlug: course.slug,
-            courseTitle: course.title, // ✅ Always use the clean course title from catalog
+            courseTitle: course.title,
             totalQuestions: 50,
             durationMinutes: 60,
             passingScore: 70,
@@ -262,7 +274,7 @@ export default function ExamsPage() {
     }
 
     buildExamList();
-  }, [user, courses, ctxEnrollments]);
+  }, [user, courses, enrollments]);
 
   // Stats
   const stats = useMemo(() => {
@@ -341,7 +353,7 @@ export default function ExamsPage() {
             <ExamCard 
               key={`${exam.courseId}-${exam.id}`} 
               exam={exam} 
-              courseTitle={exam.courseTitle} // ✅ Explicitly pass clean course title
+              courseTitle={exam.courseTitle}
             />
           ))}
         </div>
