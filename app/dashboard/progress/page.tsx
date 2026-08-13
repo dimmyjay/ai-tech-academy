@@ -39,7 +39,6 @@ export default function ProgressPage() {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
   
-  // ✅ FIX: Removed `loading: enrollmentsLoading` since it doesn't exist on CourseContextType
   const { enrollments: ctxEnrollments } = useCourseContext();
 
   const [courses, setCourses] = useState<Course[]>([]);
@@ -117,7 +116,6 @@ export default function ProgressPage() {
     }
   };
 
-  // ✅ FIX: normalizeSnap now explicitly preserves lessonProgress and completedLessons
   useEffect(() => {
     if (!user?.uid) return;
 
@@ -128,7 +126,7 @@ export default function ProgressPage() {
         val.forEach((v: any) => {
           if (!v) return;
           const id = v.id || v.courseId || JSON.stringify(v);
-          obj[id] = v; // Preserves all nested objects including lessonProgress
+          obj[id] = v; 
         });
         return obj;
       }
@@ -143,12 +141,10 @@ export default function ProgressPage() {
         merged[key] = {
           ...existing,
           ...val,
-          // ✅ CRITICAL: Deep merge lessonProgress so partial updates don't wipe it
           lessonProgress: {
             ...(existing.lessonProgress || {}),
             ...(val.lessonProgress || {}),
           },
-          // ✅ CRITICAL: Merge completedLessons (handle both array and object forms)
           completedLessons: Array.isArray(val.completedLessons)
             ? val.completedLessons
             : Array.isArray(existing.completedLessons)
@@ -250,7 +246,6 @@ export default function ProgressPage() {
     return arr.map((enrollment: any) => {
       const matched = findMatchingCourse(enrollment);
 
-      // 1. ROBUST TOTAL LESSONS COUNT
       let totalLessons = 0;
       if (matched?.modules && matched.modules.length > 0) {
         totalLessons = matched.modules.reduce(
@@ -262,12 +257,10 @@ export default function ProgressPage() {
         totalLessons = Number(enrollment.totalLessons);
       }
 
-      // 2. ROBUST COMPLETED LESSONS COUNT
       let completedCount = 0;
       const cl = enrollment.completedLessons;
       const lp = enrollment.lessonProgress || {};
 
-      // A) Count from explicitly marked completedLessons (button clicks)
       if (Array.isArray(cl)) {
         completedCount = cl.filter(Boolean).length;
       } else if (cl && typeof cl === "object") {
@@ -276,13 +269,9 @@ export default function ProgressPage() {
         completedCount = cl;
       }
 
-      // ✅ B) ALSO count lessons that reached 100% via scrolling (lessonProgress map)
       const progressCompletedCount = Object.values(lp).filter((v: any) => Number(v) >= 100).length;
-      
-      // Take the higher of the two counts to ensure we never undercount
       completedCount = Math.max(completedCount, progressCompletedCount);
 
-      // 3. DERIVE PROGRESS FROM GRANULAR lessonProgress MAP
       let calculatedProgress = 0;
       const lessonProgressMap = enrollment.lessonProgress || {};
 
@@ -305,7 +294,6 @@ export default function ProgressPage() {
         calculatedProgress = Math.min(100, Math.round((totalPercent + extraCompleted) / totalLessons));
       }
 
-      // 4. DETERMINE FINAL DISPLAY VALUES
       const rawProgress = Number(enrollment.progress ?? 0);
       const isCompletedStatus = enrollment.status === "completed" || enrollment.status === "certified";
 
@@ -324,7 +312,8 @@ export default function ProgressPage() {
         displayProgress = 100;
       }
 
-      const placeholder: Course = !matched ? {
+      // ✅ FIX: Added `as Course` to bypass strict interface check for the dummy placeholder
+      const placeholder: Course = !matched ? ({
         id: enrollment.courseId || `unknown-${Math.random().toString(36).slice(2, 8)}`,
         title: enrollment.courseTitle || "Untitled Course",
         slug: enrollment.courseSlug || slugify(enrollment.courseTitle || "") || `unknown-${Math.random().toString(36).slice(2, 8)}`,
@@ -332,7 +321,7 @@ export default function ProgressPage() {
         category: enrollment.category || "Unknown",
         modules: [],
         description: enrollment.courseDescription || "",
-      } : matched;
+      } as Course) : matched;
 
       return {
         ...enrollment,
@@ -341,7 +330,7 @@ export default function ProgressPage() {
         courseDetails: placeholder,
         totalLessons,
         normalizedCourseId: String(placeholder.id),
-        _displayCompletedLessons: completedCount, // ✅ Always a number
+        _displayCompletedLessons: completedCount,
       } as MyCourseData;
     }).filter(Boolean);
   }, [localEnrollments, courses]);
@@ -385,7 +374,6 @@ export default function ProgressPage() {
     return arr.filter((e: any) => !findMatchingCourse(e));
   }, [localEnrollments, courses]);
 
-  // ✅ FIX: Removed `enrollmentsLoading` from the loading condition
   if (authLoading || loading) {
     return (
       <div className="min-h-[60vh] flex items-center justify-center">
