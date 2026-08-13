@@ -227,14 +227,18 @@ export function getSeedCoursesByCategory(categoryName: string): SeedCourse[] {
  * Converts the array into an object keyed by the course ID, 
  * which is the required structure for Firebase `set()` or `update()`.
  */
-export function formatCoursesForFirebase(): Record<string, SeedCourse> {
-  const formattedCourses: Record<string, SeedCourse> = {};
+// ✅ FIX: Changed return type and object type to `Record<string, any>` to allow extra Firebase fields
+export function formatCoursesForFirebase(): Record<string, any> {
+  const formattedCourses: Record<string, any> = {};
   
   seedCourses.forEach((course) => {
     formattedCourses[course.id] = {
       ...course,
-      lessons: [], // Initialize empty lessons array for AI to fill later
+      modules: [], // Initialize empty modules array (matches your Course type)
+      lessons: [], // Fallback for legacy references
       finalExamId: null,
+      isPublished: false,
+      processing: true,
     };
   });
 
