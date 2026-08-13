@@ -53,7 +53,9 @@ async function groqCall(systemPrompt: string, userPrompt: string, maxTokens = 16
     const txt = await res.text();
     throw new Error(`Groq API error ${res.status}: ${txt}`);
   }
-  const json = await res.json();
+  
+  // ✅ FIX: Cast the JSON response to `any` so TypeScript allows accessing `.choices`
+  const json = (await res.json()) as any;
   return String(json?.choices?.[0]?.message?.content ?? "").trim();
 }
 
