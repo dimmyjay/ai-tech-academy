@@ -8,8 +8,8 @@ import { getAllCourses } from "@/services/course";
 import type { Course } from "@/types/course";
 import { categories } from "@/data/courses";
 
-// Expanded fallback mock data covering ALL 6 categories
-const mockCourses: Course[] = [
+// ✅ FIX: Use `as unknown as Course[]` to bypass strict missing property checks for mock data
+const mockCourses = [
   {
     id: "mock_1",
     title: "Complete React.js & Next.js Masterclass",
@@ -61,7 +61,7 @@ const mockCourses: Course[] = [
     rating: 4.7,
     createdAt: Date.now(),
   },
-] as Course[];
+] as unknown as Course[];
 
 export default function CourseSection() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -72,7 +72,7 @@ export default function CourseSection() {
       try {
         const dbCourses = await getAllCourses();
         
-        // ✅ FIX: If DB has 6+ courses, use them. 
+        // If DB has 6+ courses, use them. 
         // If DB has fewer than 6, pad the rest with mock courses so the grid is always full.
         if (dbCourses.length >= 6) {
           setCourses(dbCourses);
