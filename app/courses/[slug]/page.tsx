@@ -1,4 +1,3 @@
-// app/courses/[slug]/page.tsx
 "use client";
 
 import { useState, useEffect } from "react";
@@ -48,9 +47,11 @@ export default function CourseOverviewPage() {
       await runTransaction(courseRef, (courseData) => {
         if (courseData) {
           const currentCount = Number(
-            courseData.studentsEnrolled || courseData.enrolledCount || courseData.students || 0
+            courseData.enrolledStudents || courseData.studentsEnrolled || courseData.enrolledCount || courseData.students || 0
           );
           const newCount = currentCount + 1;
+          // ✅ Update all possible variations to keep DB consistent
+          courseData.enrolledStudents = newCount;
           courseData.studentsEnrolled = newCount;
           courseData.enrolledCount = newCount;
           courseData.students = newCount;
@@ -104,7 +105,8 @@ export default function CourseOverviewPage() {
     0
   ) || 0;
 
-  const studentCount = course?.studentsEnrolled || course?.enrolledCount || course?.students || 0;
+  // ✅ FIX: Use the correct property name `enrolledStudents` with safe fallbacks
+  const studentCount = course?.enrolledStudents || (course as any)?.studentsEnrolled || (course as any)?.enrolledCount || 0;
 
   if (loading) {
     return (
@@ -152,7 +154,7 @@ export default function CourseOverviewPage() {
               <div className="flex flex-wrap items-center gap-6 text-sm text-gray-400 pt-2">
                 <span className="flex items-center gap-2">
                   <Users size={16} className="text-orange-500" />
-                  <strong className="text-white">{studentCount}</strong> students enrolled
+                  <strong className="text-white">{studentCount.toLocaleString()}</strong> students enrolled
                 </span>
                 <span className="flex items-center gap-2">
                   <BookOpen size={16} className="text-orange-500" />
