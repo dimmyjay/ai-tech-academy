@@ -332,10 +332,11 @@ export default function ExamsPage() {
       {myExams.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2">
           {myExams.map((exam) => (
-            // ✅ FIX: Spread the exam object to pass all properties as individual props
+            // ✅ FIX: Explicitly pass examId={exam.id} to satisfy ExamCardProps
             <ExamCard 
               key={`${exam.courseId}-${exam.id}`} 
               {...exam} 
+              examId={exam.id}
             />
           ))}
         </div>
