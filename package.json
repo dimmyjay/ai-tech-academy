@@ -1,0 +1,48 @@
+{
+  "name": "ai-tech-academy",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@hookform/resolvers": "^5.7.1",
+    "@paystack/inline-js": "^2.22.2",
+    "axios": "^1.19.0",
+    "clsx": "^2.1.1",
+    "firebase": "^12.17.0",
+    "firebase-admin": "^13.10.0",
+    "framer-motion": "^12.43.0",
+    "groq-sdk": "^1.5.0",
+    "html2pdf.js": "^0.14.0",
+    "jspdf": "^4.2.1",
+    "lucide-react": "^1.28.0",
+    "next": "16.2.12",
+    "node-fetch": "^3.3.2",
+    "pdf-lib": "^1.17.1",
+    "qrcode": "^1.5.4",
+    "react": "19.2.4",
+    "react-dom": "19.2.4",
+    "react-hook-form": "^7.84.0",
+    "react-icons": "^5.7.0",
+    "sonner": "^2.0.7",
+    "tailwind-merge": "^3.6.0",
+    "unsplash-js": "^8.0.0",
+    "uuid": "^14.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4",
+    "@types/node": "^20",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.2.12",
+    "tailwindcss": "^4",
+    "typescript": "^5"
+  }
+}
