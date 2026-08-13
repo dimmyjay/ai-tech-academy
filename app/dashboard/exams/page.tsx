@@ -199,7 +199,6 @@ export default function ExamsPage() {
             totalQuestions: 50,
             durationMinutes: 60,
             passingScore: 70,
-            // ✅ FIX: Changed "available" to "not_taken" to match ExamSummary interface
             status: attemptData?.latestAttempt?.passed ? "passed" : attemptData ? "failed" : "not_taken",
             bestScore: attemptData?.bestScore ?? 0,
             certificateId: attemptData?.latestAttempt?.passed ? `cert_${attemptData.latestAttempt.id}` : undefined,
@@ -234,7 +233,6 @@ export default function ExamsPage() {
         const sortedExams = Array.from(examMap.values()).sort((a, b) => {
           if (a.isGenerating && !b.isGenerating) return -1;
           if (!a.isGenerating && b.isGenerating) return 1;
-          // ✅ FIX: Updated sort logic to use "not_taken"
           if (a.status === "not_taken" && b.status !== "not_taken") return -1;
           if (b.status === "not_taken" && a.status !== "not_taken") return 1;
           const aTime = attemptsByCourse.get(a.courseId)?.latestAttempt?.submittedAt || 0;
@@ -245,7 +243,6 @@ export default function ExamsPage() {
         setMyExams(sortedExams);
 
         sortedExams.forEach((exam) => {
-          // ✅ FIX: Updated auto-generate check to use "not_taken"
           if (
             exam.status === "not_taken" &&
             !exam.isGenerating &&
@@ -267,7 +264,6 @@ export default function ExamsPage() {
   }, [user, courses, enrollments]);
 
   const stats = useMemo(() => {
-    // ✅ FIX: Updated stats calculation to use "not_taken"
     const taken = myExams.filter((e) => e.status !== "not_taken");
     const passed = taken.filter((e) => e.status === "passed").length;
     const failed = taken.filter((e) => e.status === "failed").length;
@@ -315,7 +311,6 @@ export default function ExamsPage() {
 
       {myExams.length > 0 && (
         <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-          {/* UI label stays "Available Exams" for the user, but filters by "not_taken" internally */}
           <StatBox icon={FileCheck} label="Available Exams" value={stats.available} color="text-blue-600" bg="bg-blue-50" />
           <StatBox icon={PlayCircle} label="Exams Taken" value={stats.total} color="text-indigo-600" bg="bg-indigo-50" />
           <StatBox icon={CheckCircle2} label="Passed" value={stats.passed} color="text-green-600" bg="bg-green-50" />
@@ -337,10 +332,10 @@ export default function ExamsPage() {
       {myExams.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2">
           {myExams.map((exam) => (
+            // ✅ FIX: Spread the exam object to pass all properties as individual props
             <ExamCard 
               key={`${exam.courseId}-${exam.id}`} 
-              exam={exam} 
-              courseTitle={exam.courseTitle}
+              {...exam} 
             />
           ))}
         </div>
