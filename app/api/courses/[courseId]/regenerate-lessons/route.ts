@@ -1,21 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 
-import { v4 as uuidv4 } from "uuid";
-
-/**
- * POST /api/courses/[courseId]/regenerate-lessons
- * Headers: x-admin-secret: <ADMIN_SECRET>
- * Body: { dryRun?: boolean, force?: boolean }
- *
- * Env required:
- * - GROQ_API_KEY
- * - ADMIN_SECRET
- *
- * Optional:
- * - DEBUG=true
- */
-
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL = "llama-3.3-70b-versatile";
 
@@ -102,7 +87,6 @@ Write a full lesson body that contains the required sections. Aim for ${MIN_CONT
     const hasCode = /```[\s\S]*?```/.test(lessonText) || /\b(node|npm|python|pip|curl|git|yarn)\b/i.test(lessonText);
 
     if (ok && !tooShort && (!requireCode || hasCode)) {
-      // Return both validated text and raw for debugging
       return { lessonText, raw: out };
     }
 
@@ -125,14 +109,16 @@ Rewrite the lesson now and ensure all required headers and runnable examples are
   return { lessonText: `<<BEGIN_LESSON>>\nNEEDS_REVIEW: Automatic generation failed for ${lessonTitle}\n<<END_LESSON>>`, raw: "" };
 }
 
-export async function POST(req: NextRequest, context: { params: { courseId: string } }) {
+// ✅ FIX: Next.js 15 requires params to be a Promise
+export async function POST(req: NextRequest, context: { params: Promise<{ courseId: string }> }) {
   try {
     const adminSecret = req.headers.get("x-admin-secret");
     if (!adminSecret || adminSecret !== process.env.ADMIN_SECRET) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
-    const courseId = context?.params?.courseId;
+    // ✅ Await the params Promise
+    const { courseId } = await context.params;
     if (!courseId) return NextResponse.json({ error: "missing courseId" }, { status: 400 });
 
     const body = await req.json().catch(() => ({}));
@@ -165,7 +151,6 @@ export async function POST(req: NextRequest, context: { params: { courseId: stri
           const { lessonText, raw } = await generateLessonText(course.title || "Course", m.title || `Module ${mi + 1}`, lesson.title || `Lesson ${li + 1}`, lesson.type || "article");
           lesson.content = lessonText;
           lesson.updatedAt = Date.now();
-          // Save raw response for debugging (small truncation)
           lesson._lastRaw = raw ? String(raw).slice(0, 10000) : "";
         }
 
@@ -180,7 +165,6 @@ export async function POST(req: NextRequest, context: { params: { courseId: stri
       return NextResponse.json({ success: true, dryRun: true, previewModules: updatedModules });
     }
 
-    // Persist updated modules (replace modules)
     await adminDb.ref(`courses/${courseId}/modules`).set(updatedModules);
 
     const anyShort = updatedModules.some((mod: any) => (mod.lessons || []).some((l: any) => !l.content || l.content.length < MIN_CONTENT_CHARS));
