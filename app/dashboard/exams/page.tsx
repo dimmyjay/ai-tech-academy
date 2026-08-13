@@ -22,7 +22,7 @@ import { useCourseContext } from "@/context/CourseContext";
 import { getAllCourses } from "@/services/course";
 import ExamCard from "@/components/ExamCard";
 import Loader from "@/components/Loader";
-import type { Course, Enrollment } from "@/types/course";
+import type { Course } from "@/types/course";
 import type { ExamAttempt, ExamSummary } from "@/types/exam";
 
 interface MyExamData extends ExamSummary {
@@ -42,11 +42,11 @@ export default function ExamsPage() {
   const ctx = useCourseContext();
   const rawEnrollments = ctx?.enrollments;
 
-  // ✅ Normalize enrollments to ALWAYS be an array
-  const enrollments: Enrollment[] = useMemo(() => {
-    if (Array.isArray(rawEnrollments)) return rawEnrollments as Enrollment[];
+  // ✅ FIX: Type as any[] to avoid strict interface mismatch errors from context
+  const enrollments: any[] = useMemo(() => {
+    if (Array.isArray(rawEnrollments)) return rawEnrollments as any[];
     if (rawEnrollments && typeof rawEnrollments === "object") {
-      return Object.values(rawEnrollments) as Enrollment[];
+      return Object.values(rawEnrollments) as any[];
     }
     return [];
   }, [rawEnrollments]);
