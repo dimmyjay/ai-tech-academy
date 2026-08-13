@@ -4,7 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { Clock, Users, Star, ArrowRight, Loader } from "lucide-react";
-import { getAllCourses, Course } from "@/services/course";
+import { getAllCourses } from "@/services/course";
+import type { Course } from "@/types/course";
 import { categories } from "@/data/courses";
 
 // Expanded fallback mock data covering ALL 6 categories
@@ -21,7 +22,7 @@ const mockCourses: Course[] = [
     currency: "NGN",
     thumbnail: "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&h=600&fit=crop",
     instructor: "AI Tech Academy",
-    lessons: [],
+    modules: [],
     enrolledStudents: 1240,
     rating: 4.9,
     createdAt: Date.now(),
@@ -38,7 +39,7 @@ const mockCourses: Course[] = [
     currency: "NGN",
     thumbnail: "https://images.unsplash.com/photo-1526379095098-d400fd0bf935?w=800&h=600&fit=crop",
     instructor: "AI Tech Academy",
-    lessons: [],
+    modules: [],
     enrolledStudents: 890,
     rating: 4.8,
     createdAt: Date.now(),
@@ -55,13 +56,12 @@ const mockCourses: Course[] = [
     currency: "NGN",
     thumbnail: "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800&h=600&fit=crop",
     instructor: "AI Tech Academy",
-    lessons: [],
+    modules: [],
     enrolledStudents: 650,
     rating: 4.7,
     createdAt: Date.now(),
   },
-  
-];
+] as Course[];
 
 export default function CourseSection() {
   const [courses, setCourses] = useState<Course[]>([]);
@@ -196,7 +196,7 @@ export default function CourseSection() {
                     </div>
                     <div className="flex items-center gap-1.5">
                       <Users size={14} />
-                      <span>{course.enrolledStudents.toLocaleString()} students</span>
+                      <span>{(course.enrolledStudents || 0).toLocaleString()} students</span>
                     </div>
                   </div>
 
@@ -209,7 +209,7 @@ export default function CourseSection() {
                     
                     <div className="text-right">
                       <p className="text-xs text-gray-500">Certificate Fee</p>
-                      <p className="text-lg font-bold text-orange-600">₦{course.price.toLocaleString()}</p>
+                      <p className="text-lg font-bold text-orange-600">₦{(course.price || 1000).toLocaleString()}</p>
                     </div>
                   </div>
                 </div>
