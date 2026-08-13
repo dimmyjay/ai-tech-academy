@@ -25,6 +25,12 @@ export function useAuth() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // ✅ FIX: Guard against SSR / missing Firebase initialization
+    if (!auth || !db) {
+      setLoading(false);
+      return;
+    }
+
     let unsubscribeProfile: (() => void) | null = null;
 
     // 1. Listen to Firebase Auth state changes
@@ -77,6 +83,9 @@ export function useAuth() {
 
   // Logout function
   const logout = async () => {
+    // ✅ FIX: Guard against missing auth instance
+    if (!auth) return;
+    
     try {
       await signOut(auth);
       setUser(null);
