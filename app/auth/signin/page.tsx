@@ -1,5 +1,3 @@
-// app/auth/signin/page.tsx
-// app/auth/signin/page.tsx
 "use client";
 
 import { useState, FormEvent } from "react";
@@ -18,9 +16,7 @@ import {
   Loader2
 } from "lucide-react";
 
-// Import the official colorful Google icon from React Icons
 import { FcGoogle } from "react-icons/fc";
-
 import { useAuth } from "@/context/AuthContext";
 
 export default function SignInPage() {
@@ -41,12 +37,12 @@ export default function SignInPage() {
     setIsLoading(true);
 
     try {
-      await login({ email, password });
+      // ✅ FIX: Pass email and password as separate arguments (not an object)
+      await login(email, password);
       router.push("/dashboard");
-      router.refresh(); // Refresh to ensure server components get the new auth state
+      router.refresh();
     } catch (err: any) {
       console.error("Login error:", err);
-      // Map Firebase errors to friendly messages
       if (err.code === "auth/invalid-credential" || err.code === "auth/wrong-password") {
         setError("Invalid email or password. Please try again.");
       } else if (err.code === "auth/user-not-found") {
@@ -80,16 +76,12 @@ export default function SignInPage() {
   return (
     <div className="min-h-screen flex flex-col lg:flex-row bg-white">
       
-      {/* ========================================== */}
       {/* LEFT PANEL: BRANDING & VALUE PROP (Desktop Only) */}
-      {/* ========================================== */}
       <div className="hidden lg:flex lg:w-1/2 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 relative overflow-hidden flex-col justify-between p-12 text-white">
-        {/* Background Decor */}
         <div className="absolute top-0 right-0 w-96 h-96 bg-orange-500/20 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
         <div className="absolute bottom-0 left-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl translate-y-1/2 -translate-x-1/2"></div>
 
         <div className="relative z-10">
-          {/* Logo */}
           <Link href="/" className="flex items-center gap-3 mb-16">
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 shadow-lg">
               <GraduationCap className="text-white" size={28} />
@@ -100,7 +92,6 @@ export default function SignInPage() {
             </div>
           </Link>
 
-          {/* Headline */}
           <h2 className="text-4xl xl:text-5xl font-bold leading-tight mb-6">
             Welcome back to the <span className="bg-gradient-to-r from-orange-400 to-amber-400 bg-clip-text text-transparent">future of learning</span>.
           </h2>
@@ -109,7 +100,6 @@ export default function SignInPage() {
           </p>
         </div>
 
-        {/* Feature Highlights */}
         <div className="relative z-10 space-y-6">
           <div className="flex items-start gap-4">
             <div className="p-2 bg-orange-500/10 rounded-lg border border-orange-500/20">
@@ -141,13 +131,10 @@ export default function SignInPage() {
         </div>
       </div>
 
-      {/* ========================================== */}
       {/* RIGHT PANEL: LOGIN FORM */}
-      {/* ========================================== */}
       <div className="w-full lg:w-1/2 flex items-center justify-center p-6 sm:p-12 bg-gray-50/50">
         <div className="w-full max-w-md">
           
-          {/* Mobile Logo */}
           <Link href="/" className="flex items-center gap-3 mb-8 lg:hidden">
             <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-orange-500 to-amber-500 shadow-md">
               <GraduationCap className="text-white" size={22} />
@@ -158,7 +145,6 @@ export default function SignInPage() {
             </div>
           </Link>
 
-          {/* Header */}
           <div className="mb-8">
             <h2 className="text-3xl font-bold text-gray-900">Sign in to your account</h2>
             <p className="mt-2 text-gray-600">
@@ -169,7 +155,6 @@ export default function SignInPage() {
             </p>
           </div>
 
-          {/* Error Message */}
           {error && (
             <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl text-sm text-red-700 flex items-start gap-3">
               <div className="mt-0.5">⚠️</div>
@@ -177,10 +162,8 @@ export default function SignInPage() {
             </div>
           )}
 
-          {/* Form */}
           <form onSubmit={handleSubmit} className="space-y-5">
             
-            {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-semibold text-gray-700 mb-1.5">
                 Email Address
@@ -200,7 +183,6 @@ export default function SignInPage() {
               </div>
             </div>
 
-            {/* Password Field */}
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label htmlFor="password" className="block text-sm font-semibold text-gray-700">
@@ -236,7 +218,6 @@ export default function SignInPage() {
               </div>
             </div>
 
-            {/* Submit Button */}
             <button
               type="submit"
               disabled={isLoading || isGoogleLoading}
@@ -256,7 +237,6 @@ export default function SignInPage() {
             </button>
           </form>
 
-          {/* Divider */}
           <div className="relative my-8">
             <div className="absolute inset-0 flex items-center">
               <div className="w-full border-t border-gray-200"></div>
@@ -268,7 +248,6 @@ export default function SignInPage() {
             </div>
           </div>
 
-          {/* Google Sign In */}
           <button
             onClick={handleGoogleLogin}
             disabled={isLoading || isGoogleLoading}
@@ -277,13 +256,11 @@ export default function SignInPage() {
             {isGoogleLoading ? (
               <Loader2 className="animate-spin text-orange-600" size={20} />
             ) : (
-              // 👈 Replaced Chrome with FcGoogle
               <FcGoogle size={22} />
             )}
             {isGoogleLoading ? "Connecting..." : "Sign in with Google"}
           </button>
 
-          {/* Footer Note */}
           <p className="mt-8 text-center text-xs text-gray-500">
             By signing in, you agree to our{" "}
             <Link href="/terms" className="underline hover:text-gray-700">Terms of Service</Link> and{" "}
