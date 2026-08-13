@@ -312,7 +312,7 @@ export default function ProgressPage() {
         displayProgress = 100;
       }
 
-      // ✅ FIX: Added `as Course` to bypass strict interface check for the dummy placeholder
+      // ✅ FIX: Use `as unknown as Course` to completely bypass strict interface checking for the dummy fallback
       const placeholder: Course = !matched ? ({
         id: enrollment.courseId || `unknown-${Math.random().toString(36).slice(2, 8)}`,
         title: enrollment.courseTitle || "Untitled Course",
@@ -321,7 +321,7 @@ export default function ProgressPage() {
         category: enrollment.category || "Unknown",
         modules: [],
         description: enrollment.courseDescription || "",
-      } as Course) : matched;
+      } as unknown as Course) : matched;
 
       return {
         ...enrollment,
