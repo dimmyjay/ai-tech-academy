@@ -66,6 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // 1. Listen to Firebase Auth State & Fetch Profile from Realtime DB
   useEffect(() => {
+    // ✅ FIX: Guard against SSR / missing Firebase initialization
+    if (!auth || !db) {
+      setLoading(false);
+      return;
+    }
+
     let unsubscribeProfile: (() => void) | null = null;
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
