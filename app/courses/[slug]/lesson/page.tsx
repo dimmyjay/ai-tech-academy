@@ -165,6 +165,7 @@ export default function LessonPage() {
   const [generating, setGenerating] = useState(false);
   const [activeHeading, setActiveHeading] = useState<string>("");
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [videoProgress, setVideoProgress] = useState(0);
   const [tocOpen, setTocOpen] = useState(true);
   
   const [learningMode, setLearningMode] = useState<'text' | 'video'>('text');
@@ -173,6 +174,8 @@ export default function LessonPage() {
   const generatingRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const playerRef = useRef<any>(null);
+  const videoProgressIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const allLessons = useMemo(() => {
     if (!course?.modules) return [];
@@ -334,6 +337,7 @@ export default function LessonPage() {
     if (prevLesson) {
       setCurrentLessonId(prevLesson.id);
       setScrollProgress(0);
+      setVideoProgress(0);
       if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
     }
   };
@@ -348,6 +352,7 @@ export default function LessonPage() {
       setLessonProgress((prev) => ({ ...prev, [currentLessonId]: 100 }));
       persistLessonProgress(currentLessonId, 100);
       setScrollProgress(0);
+      setVideoProgress(0);
       if (nextLesson) {
         setCurrentLessonId(nextLesson.id);
         if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0;
@@ -520,6 +525,83 @@ export default function LessonPage() {
     if (nextPercent !== existing) setProgressForLesson(currentLesson.id, nextPercent);
   };
 
+  // ✅ YouTube Player API initialization and video progress tracking
+  useEffect(() => {
+    if (learningMode !== 'video' || !hasVideo || !youtubeId || !currentLesson) return;
+
+    // Load YouTube IFrame API if not already loaded
+    if (typeof window !== 'undefined' && !(window as any).YT) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      const firstScriptTag = document.getElementsByTagName('script')[0];
+      firstScriptTag.parentNode?.insertBefore(tag, firstScriptTag);
+    }
+
+    const initPlayer = () => {
+      if (playerRef.current) {
+        playerRef.current.destroy();
+      }
+
+      playerRef.current = new (window as any).YT.Player('youtube-player', {
+        videoId: youtubeId,
+        playerVars: {
+          autoplay: 0,
+          modestbranding: 1,
+          rel: 0,
+        },
+        events: {
+          onReady: () => {
+            // Start tracking video progress
+            videoProgressIntervalRef.current = setInterval(() => {
+              if (playerRef.current && playerRef.current.getCurrentTime) {
+                const currentTime = playerRef.current.getCurrentTime();
+                const duration = playerRef.current.getDuration();
+                if (duration > 0) {
+                  const percent = Math.min(100, Math.max(0, (currentTime / duration) * 100));
+                  setVideoProgress(percent);
+                  
+                  // Update lesson progress (take max of existing and video progress)
+                  if (currentLesson) {
+                    const existing = lessonProgress[currentLesson.id] ?? 0;
+                    const nextPercent = Math.max(existing, Math.round(percent));
+                    if (nextPercent !== existing) {
+                      setProgressForLesson(currentLesson.id, nextPercent);
+                    }
+                  }
+                }
+              }
+            }, 1000);
+          },
+          onStateChange: (event: any) => {
+            // Video ended - mark as complete
+            if (event.data === (window as any).YT.PlayerState.ENDED && currentLesson) {
+              setProgressForLesson(currentLesson.id, 100);
+              setVideoProgress(100);
+            }
+          },
+        },
+      });
+    };
+
+    // Wait for API to be ready
+    if ((window as any).YT && (window as any).YT.Player) {
+      initPlayer();
+    } else {
+      (window as any).onYouTubeIframeAPIReady = initPlayer;
+    }
+
+    return () => {
+      if (videoProgressIntervalRef.current) {
+        clearInterval(videoProgressIntervalRef.current);
+        videoProgressIntervalRef.current = null;
+      }
+      if (playerRef.current) {
+        playerRef.current.destroy();
+        playerRef.current = null;
+      }
+    };
+  }, [learningMode, hasVideo, youtubeId, currentLesson, currentLessonId]);
+
   useEffect(() => {
     async function fetchCourse() {
       if (!slug) return;
@@ -555,18 +637,13 @@ export default function LessonPage() {
     if (allLessons.length > 0) setCurrentLessonId(allLessons[0].id);
   }, [course, currentLessonId, allLessons]);
 
+  // ✅ ALWAYS generate the writeup, even if a YouTube video exists
   useEffect(() => {
     if (!currentLesson || generatingRef.current) return;
-    if (!hasVideo && (!currentLesson.content || currentLesson.content.trim().length < 100)) {
+    if (!currentLesson.content || currentLesson.content.trim().length < 100) {
       handleGenerateLesson();
     }
-  }, [currentLessonId, hasVideo]);
-
-  useEffect(() => {
-    if (hasVideo && !hasContent && !generating) {
-      setLearningMode('video');
-    }
-  }, [hasVideo, hasContent, generating]);
+  }, [currentLessonId]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
@@ -592,6 +669,7 @@ export default function LessonPage() {
 
   useEffect(() => {
     setLearningMode('text'); 
+    setVideoProgress(0);
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
       setScrollProgress(0);
@@ -618,6 +696,9 @@ export default function LessonPage() {
     );
   }
 
+  // ✅ Determine which progress to show based on learning mode
+  const currentProgress = learningMode === 'video' ? videoProgress : scrollProgress;
+
   return (
     <main className="min-h-screen bg-white flex flex-col lg:flex-row h-[calc(100vh-80px)] overflow-hidden">
       <div className="flex-1 flex flex-col h-full relative overflow-hidden">
@@ -640,7 +721,8 @@ export default function LessonPage() {
                 {currentLesson?.title || "Lesson Content"}
               </h1>
               
-              {hasVideo && hasContent && (
+              {/* ✅ Toggle switch visible if EITHER video OR text exists */}
+              {(hasVideo || hasContent) && (
                 <div className="flex items-center gap-2 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
                   <button
                     onClick={() => setLearningMode('text')}
@@ -668,9 +750,10 @@ export default function LessonPage() {
                 <span className="flex items-center gap-1">
                   <PlayCircle size={14} /> {currentLesson?.duration || "10 mins"}
                 </span>
-                {hasContent && learningMode === 'text' && !isCompleted && (
+                {/* ✅ Show progress for current mode (text OR video) */}
+                {!isCompleted && currentProgress > 0 && (
                   <span className="flex items-center gap-1 text-orange-600">
-                    <span className="text-xs font-medium">{Math.round(scrollProgress)}% read</span>
+                    <span className="text-xs font-medium">{Math.round(currentProgress)}% {learningMode === 'video' ? 'watched' : 'read'}</span>
                   </span>
                 )}
               </div>
@@ -680,15 +763,9 @@ export default function LessonPage() {
               <>
                 {learningMode === 'video' && hasVideo && youtubeId ? (
                   <div className="mb-8">
+                    {/* ✅ YouTube Player with IFrame API for progress tracking */}
                     <div className="relative w-full overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-black" style={{ paddingBottom: '56.25%' }}>
-                      <iframe
-                        className="absolute top-0 left-0 w-full h-full"
-                        src={`https://www.youtube.com/embed/${youtubeId}?rel=0`}
-                        title={currentLesson?.title}
-                        frameBorder="0"
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                      ></iframe>
+                      <div id="youtube-player" className="absolute top-0 left-0 w-full h-full"></div>
                     </div>
                     {hasContent && (
                       <p className="text-sm text-gray-500 mt-4 text-center">
@@ -725,8 +802,19 @@ export default function LessonPage() {
                       </div>
                     )}
 
+                    {/* ✅ Show text, OR show generating spinner, OR show fallback */}
                     {hasContent ? (
                       <div className="bg-white border border-gray-200 rounded-2xl p-8 md:p-12 mb-8 shadow-sm prose prose-lg prose-orange max-w-none" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+                    ) : generating ? (
+                      <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-100 rounded-2xl p-12 mb-8 text-center">
+                        <div className="max-w-md mx-auto">
+                          <RefreshCw size={48} className="mx-auto mb-4 text-orange-500 animate-spin" />
+                          <h3 className="text-xl font-bold text-gray-900 mb-2">Generating Your Article...</h3>
+                          <p className="text-gray-600 animate-pulse">
+                            Our AI tutor is crafting the written lesson for &quot;{currentLesson?.title}&quot;. This typically takes 10–30 seconds.
+                          </p>
+                        </div>
+                      </div>
                     ) : (
                       <div className="bg-gray-50 border border-gray-200 rounded-2xl p-8 mb-8 text-center text-gray-500">
                         <FileText size={32} className="mx-auto mb-2 text-gray-400" />
@@ -742,14 +830,14 @@ export default function LessonPage() {
                   {generating ? (
                     <>
                       <RefreshCw size={48} className="mx-auto mb-4 text-orange-500 animate-spin" />
-                      <h3 className="text-xl font-bold text-gray-900 mb-2">Generating Your Lesson...</h3>
-                      <p className="text-gray-600 animate-pulse">Our AI tutor is crafting personalized content for &quot;{currentLesson?.title}&quot;. This typically takes 10–30 seconds.</p>
+                      <h3 className="text-xl font-bold text-gray-900 mb-2">Preparing Lesson...</h3>
+                      <p className="text-gray-600 animate-pulse">Initializing AI generation pipeline...</p>
                     </>
                   ) : (
                     <>
                       <BookOpen size={48} className="mx-auto mb-4 text-orange-400" />
                       <h3 className="text-xl font-bold text-gray-900 mb-2">Preparing Lesson Content</h3>
-                      <p className="text-gray-600">Initializing AI generation pipeline...</p>
+                      <p className="text-gray-600">Fetching course data...</p>
                     </>
                   )}
                 </div>
@@ -813,7 +901,7 @@ export default function LessonPage() {
                     const lessonPct = lessonProgress[lessonId] ?? 0;
 
                     return (
-                      <button key={`${module.id ?? modIdx}-${lessonId}-${lessIdx}`} onClick={() => { setCurrentLessonId(lessonId); setScrollProgress(0); setSidebarOpen(false); }} className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${isActive ? "bg-orange-50 border border-orange-100" : "hover:bg-gray-50 border border-transparent"}`}>
+                      <button key={`${module.id ?? modIdx}-${lessonId}-${lessIdx}`} onClick={() => { setCurrentLessonId(lessonId); setScrollProgress(0); setVideoProgress(0); setSidebarOpen(false); }} className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${isActive ? "bg-orange-50 border border-orange-100" : "hover:bg-gray-50 border border-transparent"}`}>
                         <div className={`mt-0.5 ${isLessonCompleted ? "text-green-500" : isActive ? "text-orange-500" : "text-gray-300"}`}>
                           {isLessonCompleted ? <CheckCircle2 size={18} /> : <PlayCircle size={18} />}
                         </div>
@@ -823,10 +911,11 @@ export default function LessonPage() {
                             <p className="text-xs text-gray-400">{lesson.duration || "5 mins"}</p>
                             <div className="ml-2 text-xs text-gray-500 font-semibold">{Math.round(lessonPct)}%</div>
                           </div>
-                          {isActive && !isLessonCompleted && scrollProgress > 0 && learningMode === 'text' && (
+                          {/* ✅ Show progress bar for active lesson (works for both text and video) */}
+                          {isActive && !isLessonCompleted && currentProgress > 0 && (
                             <div className="mt-2">
                               <div className="w-full bg-gray-200 rounded-full h-1">
-                                <div className="bg-orange-400 h-1 rounded-full transition-all duration-300" style={{ width: `${scrollProgress}%` }}></div>
+                                <div className="bg-orange-400 h-1 rounded-full transition-all duration-300" style={{ width: `${currentProgress}%` }}></div>
                               </div>
                             </div>
                           )}
