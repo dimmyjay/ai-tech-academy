@@ -2,7 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile";
+
+// ✅ Replaced single MODEL with a fallback list. 
+// If Groq retires one, it automatically tries the next.
+const PREFERRED_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+];
+
 const MIN_LESSON_WORDS = 800;
 const MAX_RETRIES = 3;
 const MAX_TOKENS = 4096;
@@ -27,7 +38,7 @@ interface ValidationResult {
 }
 
 // ==========================================
-// GROQ API CALL WITH RETRY
+// GROQ API CALL WITH RETRY & MODEL FALLBACK
 // ==========================================
 async function groqCall(
   system: string,
@@ -35,45 +46,59 @@ async function groqCall(
   opts: { temperature?: number; maxTokens?: number } = {},
   rateLimitRetries = 3
 ): Promise<string> {
-  for (let attempt = 0; attempt <= rateLimitRetries; attempt++) {
-    const res = await fetch(GROQ_API, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: user },
-        ],
-        max_tokens: opts.maxTokens ?? MAX_TOKENS,
-        temperature: opts.temperature ?? 0.2,
-      }),
-    });
+  let lastError: Error | null = null;
 
-    if (res.status === 429) {
-      const txt = await res.text().catch(() => "");
-      const match = txt.match(/try again in ([\d.]+)s/);
-      const waitSeconds = match ? parseFloat(match[1]) : 5;
-      if (attempt < rateLimitRetries) {
-        await new Promise((r) => setTimeout(r, waitSeconds * 1000 + 500));
-        continue;
+  // Try each model in the preferred list
+  for (const model of PREFERRED_MODELS) {
+    for (let attempt = 0; attempt <= rateLimitRetries; attempt++) {
+      const res = await fetch(GROQ_API, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          max_tokens: opts.maxTokens ?? MAX_TOKENS,
+          temperature: opts.temperature ?? 0.2,
+        }),
+      });
+
+      // ✅ If model is retired/not found (404), break inner loop and try the next model
+      if (res.status === 404) {
+        const txt = await res.text().catch(() => "");
+        lastError = new Error(`Groq model "${model}" not found: ${txt}`);
+        console.warn(`[groqCall] Model "${model}" unavailable, trying next...`);
+        break; 
       }
-      throw new Error(`Groq API rate limit exceeded: ${txt}`);
-    }
 
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      throw new Error(`Groq API error ${res.status}: ${txt}`);
-    }
+      if (res.status === 429) {
+        const txt = await res.text().catch(() => "");
+        const match = txt.match(/try again in ([\d.]+)s/);
+        const waitSeconds = match ? parseFloat(match[1]) : 5;
+        if (attempt < rateLimitRetries) {
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000 + 500));
+          continue; // Retry the SAME model after waiting
+        }
+        throw new Error(`Groq API rate limit exceeded for ${model}: ${txt}`);
+      }
 
-    const j = await res.json();
-    const raw = j?.choices?.[0]?.message?.content;
-    return typeof raw === "string" ? raw.trim() : JSON.stringify(raw);
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Groq API error ${res.status} for ${model}: ${txt}`);
+      }
+
+      const j = await res.json();
+      const raw = j?.choices?.[0]?.message?.content;
+      return typeof raw === "string" ? raw.trim() : JSON.stringify(raw);
+    }
   }
-  throw new Error("Groq API call failed unexpectedly.");
+  
+  throw lastError || new Error("All Groq models failed or were unavailable.");
 }
 
 // ==========================================
