@@ -1,4 +1,4 @@
-// app/courses/[slug]/page.tsx
+// app/courses/[slug]/lesson/page.tsx
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -52,12 +52,7 @@ interface TocItem {
 function makeIdGenerator() {
   const counts = new Map<string, number>();
   return (text: string) => {
-    const base = text
-      .toString()
-      .trim()
-      .toLowerCase()
-      .replace(/[^\w\s-]/g, "")
-      .replace(/\s+/g, "-");
+    const base = text.toString().trim().toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
     const prev = counts.get(base) ?? 0;
     const id = prev === 0 ? base : `${base}-${prev + 1}`;
     counts.set(base, prev + 1);
@@ -117,12 +112,7 @@ function renderMarkdown(content: string): string {
 }
 
 function slugify(text = "") {
-  return text
-    .toString()
-    .trim()
-    .toLowerCase()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-");
+  return text.toString().trim().toLowerCase().replace(/[^\w\s-]/g, "").replace(/\s+/g, "-");
 }
 
 function normalizeCourseIds(course: Course): Course {
@@ -145,7 +135,13 @@ function normalizeCourseIds(course: Course): Course {
   return { ...course, modules };
 }
 
-// Minimum percent to treat lesson as completed (set to 100 for full read)
+function getYoutubeId(url: string) {
+  if (!url) return null;
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+  const match = url.match(regExp);
+  return match && match[2].length === 11 ? match[2] : null;
+}
+
 const LESSON_COMPLETE_THRESHOLD = 100;
 
 // ==========================================
@@ -170,6 +166,9 @@ export default function LessonPage() {
   const [activeHeading, setActiveHeading] = useState<string>("");
   const [scrollProgress, setScrollProgress] = useState(0);
   const [tocOpen, setTocOpen] = useState(true);
+  
+  const [learningMode, setLearningMode] = useState<'text' | 'video'>('text');
+  const [videoOverrides, setVideoOverrides] = useState<Record<string, string>>({});
 
   const generatingRef = useRef(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -201,24 +200,24 @@ export default function LessonPage() {
   const enrolled = user && courseId ? isEnrolled?.(courseId) : false;
   const enrollment = user && courseId ? getEnrollment?.(courseId) : undefined;
 
+  const rawVideoUrl = (currentLesson as any)?.videoUrl || (currentLesson as any)?.youtubeUrl || "";
+  const videoUrl = (currentLessonId && videoOverrides[currentLessonId]) || rawVideoUrl;
+  const hasVideo = !!videoUrl;
+  const youtubeId = getYoutubeId(videoUrl);
+
   const hasContent = currentLesson?.content && currentLesson.content.trim().length > 100;
+  const hasAnyContent = hasContent || hasVideo;
+  
   const displayContent = currentLesson?.content || "";
   const renderedHtml = useMemo(() => renderMarkdown(displayContent), [displayContent]);
   const tocItems = useMemo(() => parseHeadings(displayContent), [displayContent]);
 
-  // lessonProgress: persistent per-lesson percent [0..100]. Keys are canonical lesson ids.
   const [lessonProgress, setLessonProgress] = useState<Record<string, number>>({});
-
-  // debounce refs for persisting
   const persistTimeoutRef = useRef<number | null>(null);
-
   const localStorageKey = (cid?: string) => `course_progress_${cid || courseId || "unknown"}`;
 
-  // Initialize lessonProgress from enrollment (if it contains lessonProgress) or localStorage
   useEffect(() => {
     const init: Record<string, number> = {};
-
-    // 1) from enrollment.lessonProgress if provided (shape: { lessonId: percent })
     if (enrollment && typeof enrollment === "object" && (enrollment as any).lessonProgress) {
       const lp = (enrollment as any).lessonProgress;
       if (lp && typeof lp === "object") {
@@ -228,15 +227,11 @@ export default function LessonPage() {
         }
       }
     }
-
-    // 2) If completedLessons array exists, mark them 100%
     if (enrollment && Array.isArray((enrollment as any).completedLessons)) {
       for (const cid of (enrollment as any).completedLessons) {
         if (typeof cid === "string") init[cid] = 100;
       }
     }
-
-    // 3) merge with localStorage fallback
     try {
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(localStorageKey()) : null;
       if (raw) {
@@ -244,101 +239,66 @@ export default function LessonPage() {
         if (parsed && typeof parsed === "object") {
           for (const k of Object.keys(parsed)) {
             const v = Number(parsed[k]) || 0;
-            // keep the higher percent if both exist
             init[k] = Math.max(init[k] ?? 0, Math.min(100, Math.max(0, v)));
           }
         }
       }
-    } catch (e) {
-      // ignore parse errors
-    }
-
+    } catch (e) {}
     setLessonProgress(init);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId, enrollment, course]);
 
-  // helper persist function: saves to context (if available) and to localStorage
   const persistLessonProgress = async (lessonId: string, percent: number) => {
-    // update context if provided
     try {
       if (updateLessonProgress && typeof updateLessonProgress === "function") {
-        // call but don't block UI
-        updateLessonProgress(courseId, lessonId, percent).catch((e: any) => {
-          // ignore individual errors; we'll persist to localStorage anyway
-          console.error("updateLessonProgress failed:", e);
-        });
+        updateLessonProgress(courseId, lessonId, percent).catch((e: any) => console.error("updateLessonProgress failed:", e));
       }
-    } catch (e) {
-      // ignore
-    }
-
-    // persist to localStorage
+    } catch (e) {}
     try {
       const key = localStorageKey();
       const raw = typeof window !== "undefined" ? window.localStorage.getItem(key) : null;
       const parsed = raw && JSON.parse(raw) ? (JSON.parse(raw) as Record<string, number>) : {};
       parsed[lessonId] = Math.min(100, Math.max(0, percent));
       if (typeof window !== "undefined") window.localStorage.setItem(key, JSON.stringify(parsed));
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
   };
 
-  // Called when reading progress changes for the current lesson. Debounced persist.
   const setProgressForLesson = (lessonId: string, percent: number) => {
     setLessonProgress((prev) => {
       const prevVal = prev[lessonId] ?? 0;
       const nextVal = Math.max(prevVal, Math.min(100, Math.round(percent)));
       if (nextVal === prevVal) return prev;
-      const next = { ...prev, [lessonId]: nextVal };
-      return next;
+      return { ...prev, [lessonId]: nextVal };
     });
-
-    // debounce persist (1s)
-    if (persistTimeoutRef.current) {
-      clearTimeout(persistTimeoutRef.current);
-      persistTimeoutRef.current = null;
-    }
+    if (persistTimeoutRef.current) clearTimeout(persistTimeoutRef.current);
     persistTimeoutRef.current = window.setTimeout(() => {
       persistLessonProgress(lessonId, Math.min(100, Math.round(percent)));
       persistTimeoutRef.current = null;
     }, 1000);
   };
 
-  // Completed count: lessons with progress >= threshold OR listed in enrollment.completedLessons
   const completedCount = useMemo(() => {
     if (!allLessons || allLessons.length === 0) return 0;
     let count = 0;
     const completedSet = new Set<string>();
-    // include enrollment.completedLessons if present
     if (enrollment && Array.isArray((enrollment as any).completedLessons)) {
       for (const id of (enrollment as any).completedLessons) if (typeof id === "string") completedSet.add(id);
     }
     for (const les of allLessons) {
       const p = lessonProgress[les.id] ?? 0;
-      if (p >= LESSON_COMPLETE_THRESHOLD) {
-        count++;
-        continue;
-      }
-      // also allow legacy ids in enrollment.completedLessons to mark complete
+      if (p >= LESSON_COMPLETE_THRESHOLD) { count++; continue; }
       const titleSlug = slugify(les.title || "");
       const titleLower = (les.title || "").toLowerCase();
-      if (completedSet.has(les.id) || completedSet.has(titleSlug) || completedSet.has(titleLower)) {
-        count++;
-      }
+      if (completedSet.has(les.id) || completedSet.has(titleSlug) || completedSet.has(titleLower)) count++;
     }
     return count;
   }, [lessonProgress, allLessons, enrollment]);
 
-  const allLessonsCompleted = useMemo(() => {
-    return allLessons.length > 0 && completedCount >= allLessons.length;
-  }, [completedCount, allLessons.length]);
+  const allLessonsCompleted = useMemo(() => allLessons.length > 0 && completedCount >= allLessons.length, [completedCount, allLessons.length]);
 
   const isCompleted = useMemo(() => {
     if (!currentLesson) return false;
     const p = lessonProgress[currentLesson.id] ?? 0;
     if (p >= LESSON_COMPLETE_THRESHOLD) return true;
-    // fallback to enrollment.completedLessons
     if (enrollment && Array.isArray((enrollment as any).completedLessons)) {
       const set = new Set((enrollment as any).completedLessons.map(String));
       const titleSlug = slugify(currentLesson.title || "");
@@ -363,14 +323,11 @@ export default function LessonPage() {
   const isLastLesson = currentIndex === allLessons.length - 1;
   const canTakeExam = enrolled && allLessonsCompleted;
 
-  // display progress: average percentage across lessons
   const displayProgress = useMemo(() => {
     if (allLessons.length === 0) return 0;
-    // average progress
     const total = allLessons.reduce((acc, les) => acc + (lessonProgress[les.id] ?? 0), 0);
     return Math.round(total / allLessons.length);
   }, [lessonProgress, allLessons]);
-
   const displayProgressRounded = Math.round(displayProgress);
 
   const handlePrev = () => {
@@ -388,11 +345,8 @@ export default function LessonPage() {
     try {
       if (!enrolled && enrollCourse) await enrollCourse(courseId);
       await markLessonComplete(courseId, currentLessonId);
-
-      // set lesson progress to 100% locally & persist
       setLessonProgress((prev) => ({ ...prev, [currentLessonId]: 100 }));
       persistLessonProgress(currentLessonId, 100);
-
       setScrollProgress(0);
       if (nextLesson) {
         setCurrentLessonId(nextLesson.id);
@@ -405,142 +359,84 @@ export default function LessonPage() {
     }
   };
 
-  // NEW: When all lessons finish reading, mark enrollment completed in RTDB so Progress page reacts
-  // Replace the existing markCourseCompleteInDB useEffect body with this:
-// Replace the existing markCourseCompleteInDB useEffect body with this:
-useEffect(() => {
-  async function markCourseCompleteInDB() {
-    if (!user?.uid || !courseId) return;
-
-    // Skip if already completed locally
-    const currentStatus = enrollment?.status;
-    const currentProgress = Number(enrollment?.progress ?? 0);
-    if (currentStatus === "completed" || currentProgress >= 100) return;
-
-    try {
-      // ✅ PREFERRED: Use the server-side API endpoint first
-      // This bypasses RTDB rules entirely and uses Admin SDK on the server
-      const { getAuth } = await import("firebase/auth");
-      const auth = getAuth();
-      const currentUser = auth.currentUser;
-      
-      if (currentUser) {
-        const token = await currentUser.getIdToken();
-        const res = await fetch("/api/enrollments/complete", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ courseId }),
-        });
-
-        if (res.ok) {
-          console.info("✅ Course completion synced via server API");
-          return; // Success - no need for client-side fallback
-        } else {
-          console.warn("Server API failed, attempting client-side fallback:", await res.text());
+  useEffect(() => {
+    async function markCourseCompleteInDB() {
+      if (!user?.uid || !courseId) return;
+      const currentStatus = enrollment?.status;
+      const currentProgress = Number(enrollment?.progress ?? 0);
+      if (currentStatus === "completed" || currentProgress >= 100) return;
+      try {
+        const { getAuth } = await import("firebase/auth");
+        const auth = getAuth();
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          const token = await currentUser.getIdToken();
+          const res = await fetch("/api/enrollments/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ courseId }),
+          });
+          if (res.ok) return;
         }
+        if (enrollment?.id) {
+          const ref = dbRef(db, `users/${user.uid}/enrollments/${enrollment.id}`);
+          await dbUpdate(ref, { status: "completed", progress: 100, completedAt: Date.now() });
+        }
+      } catch (err: any) {
+        console.error("markCourseCompleteInDB error:", err);
       }
-
-      // ⚠️ FALLBACK ONLY: Direct write if we know the exact enrollment key
-      // Only attempt this if your RTDB rules allow: 
-      // "users/$uid/enrollments/$enrollmentId": { ".write": "auth.uid === $uid" }
-      if (enrollment?.id) {
-        const ref = dbRef(db, `users/${user.uid}/enrollments/${enrollment.id}`);
-        await dbUpdate(ref, { 
-          status: "completed", 
-          progress: 100, 
-          completedAt: Date.now() 
-        });
-        console.info("✅ Course completion synced via direct RTDB write");
-      } else {
-        console.error("❌ Cannot complete course: No enrollment ID available and server API failed");
-      }
-
-    } catch (err: any) {
-      console.error("markCourseCompleteInDB error:", err);
     }
-  }
+    if (allLessonsCompleted) markCourseCompleteInDB();
+  }, [allLessonsCompleted, user?.uid, courseId, enrollment?.id, enrollment?.status, enrollment?.progress]); 
 
-  if (allLessonsCompleted) {
-    markCourseCompleteInDB();
-  }
-}, [allLessonsCompleted, user?.uid, courseId, enrollment?.id, enrollment?.status, enrollment?.progress]); 
-
-  // ✅ SYNC OVERALL COURSE PROGRESS TO FIREBASE
-  // This ensures the Progress Page dashboard bar increases as you read
   useEffect(() => {
     if (!user?.uid || !courseId || allLessons.length === 0) return;
-
-    // Debounce to avoid excessive writes while scrolling
     const syncTimeout = setTimeout(async () => {
       try {
         const totalProgress = allLessons.reduce((acc, les) => acc + (lessonProgress[les.id] ?? 0), 0);
         const overallPercent = Math.round(totalProgress / allLessons.length);
-
-        // Update user-scoped enrollment
         const userEnrollRef = dbRef(db, `users/${user.uid}/enrollments`);
         const userEnrollSnap = await dbGet(userEnrollRef);
-        
         if (userEnrollSnap.exists()) {
           const enrollments = userEnrollSnap.val();
-          const entry = Object.entries(enrollments).find(
-            ([_, val]: [string, any]) => val.courseId === courseId
-          );
-          
+          const entry = Object.entries(enrollments).find(([_, val]: [string, any]) => val.courseId === courseId);
           if (entry) {
             const [enrollKey] = entry;
             await dbUpdate(dbRef(db, `users/${user.uid}/enrollments/${enrollKey}`), {
-              progress: overallPercent,
-              lastAccessed: Date.now(),
-              lessonProgress: lessonProgress, // ✅ Also sync granular lesson progress
+              progress: overallPercent, lastAccessed: Date.now(), lessonProgress: lessonProgress,
             });
           }
         }
-
-        // Best-effort update top-level enrollment
         try {
           const topRef = dbRef(db, "enrollments");
           const topQuery = dbQuery(topRef, dbOrderByChild("userId"), dbEqualTo(user.uid));
           const topSnap = await dbGet(topQuery);
-          
           if (topSnap.exists()) {
             const entries = Object.entries(topSnap.val());
             const match = entries.find(([_, val]: [string, any]) => val.courseId === courseId);
             if (match) {
               await dbUpdate(dbRef(db, `enrollments/${match[0]}`), {
-                progress: overallPercent,
-                lastAccessed: Date.now(),
-                lessonProgress: lessonProgress,
+                progress: overallPercent, lastAccessed: Date.now(), lessonProgress: lessonProgress,
               });
             }
           }
-        } catch (e) {
-          // Non-critical: top-level sync failed
-        }
+        } catch (e) {}
       } catch (err) {
         console.error("Failed to sync course progress:", err);
       }
-    }, 2000); // 2-second debounce
-
+    }, 2000);
     return () => clearTimeout(syncTimeout);
   }, [lessonProgress, allLessons, user?.uid, courseId]);
-const handleGenerateLesson = async () => {
+
+  const handleGenerateLesson = async () => {
     if (!slug || !currentLesson || !course || generatingRef.current) return;
     setGenerating(true);
     generatingRef.current = true;
     try {
       const module = course.modules?.find((m) => m.lessons?.some((l) => l.id === currentLesson.id));
-
       const queryParams = new URLSearchParams({
-        auto_regenerate: "true",
-        lesson_id: currentLesson.id,
-        lesson_title: currentLesson.title || "",
-        module_title: module?.title || "",
-        course_title: course.title || "",
-        lesson_type: "article",
-        _t: Date.now().toString(),
+        auto_regenerate: "true", lesson_id: currentLesson.id, lesson_title: currentLesson.title || "",
+        module_title: module?.title || "", course_title: course.title || "", lesson_type: "article", _t: Date.now().toString(),
       });
       const res = await fetch(`/api/courses/slug/${encodeURIComponent(slug)}?${queryParams.toString()}`, { cache: "no-store" });
       if (res.ok) {
@@ -549,15 +445,11 @@ const handleGenerateLesson = async () => {
           setCourse((prev) => {
             if (!prev) return prev;
             const newModules = prev.modules?.map((m) => ({
-              ...m,
-              lessons: m.lessons?.map((l) => (l.id === currentLesson.id ? { ...l, content: json.lessonBody } : l)),
+              ...m, lessons: m.lessons?.map((l) => (l.id === currentLesson.id ? { ...l, content: json.lessonBody } : l)),
             }));
-            const updated = { ...prev, modules: newModules };
-            return normalizeCourseIds(updated);
+            return normalizeCourseIds({ ...prev, modules: newModules });
           });
         }
-      } else {
-        console.error("Generation API returned non-OK:", res.status);
       }
     } catch (error) {
       console.error("Generation error:", error);
@@ -566,6 +458,42 @@ const handleGenerateLesson = async () => {
       generatingRef.current = false;
     }
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchMatchingVideo() {
+      if (!currentLesson || !currentLessonId) return;
+      if (rawVideoUrl || videoOverrides[currentLessonId]) return; 
+      
+      const query = `${currentLesson.title || ""} ${(currentLesson as any)?._moduleTitle || ""} tutorial`;
+      if (!query.trim()) return;
+      
+      try {
+        const res = await fetch(`/api/youtube/match?q=${encodeURIComponent(query)}`, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = await res.json();
+        if (!cancelled && json?.video?.url) {
+          setVideoOverrides((prev) => ({ ...prev, [currentLessonId]: json.video.url }));
+          
+          try {
+            if (course?.id && course.modules) {
+              const mIdx = course.modules.findIndex((m) => m.lessons?.some((l) => l.id === currentLessonId));
+              if (mIdx >= 0) {
+                const lIdx = course.modules[mIdx].lessons?.findIndex((l) => l.id === currentLessonId) ?? -1;
+                if (lIdx >= 0) {
+                  await dbUpdate(dbRef(db, `courses/${course.id}/modules/${mIdx}/lessons/${lIdx}`), { videoUrl: json.video.url });
+                }
+              }
+            }
+          } catch (e) { /* ignore persistence errors */ }
+        }
+      } catch (e) {
+        console.error("Failed to fetch matching video:", e);
+      }
+    }
+    fetchMatchingVideo();
+    return () => { cancelled = true; };
+  }, [currentLessonId, rawVideoUrl, course?.id]);
 
   const scrollToHeading = (id: string) => {
     const container = scrollContainerRef.current;
@@ -580,15 +508,13 @@ const handleGenerateLesson = async () => {
     }
   };
 
-  // On-scroll: update current lesson's reading percent and persist (store max seen)
   const handleScroll = () => {
-    if (!scrollContainerRef.current || !hasContent || !currentLesson) return;
+    if (learningMode !== 'text' || !scrollContainerRef.current || !hasContent || !currentLesson) return;
     const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
     const scrollableHeight = scrollHeight - clientHeight;
     if (scrollableHeight <= 0) return;
     const percent = Math.min(100, Math.max(0, (scrollTop / scrollableHeight) * 100));
     setScrollProgress(percent);
-    // set per-lesson progress as max(existing, percent)
     const existing = lessonProgress[currentLesson.id] ?? 0;
     const nextPercent = Math.max(existing, Math.round(percent));
     if (nextPercent !== existing) setProgressForLesson(currentLesson.id, nextPercent);
@@ -616,9 +542,7 @@ const handleGenerateLesson = async () => {
         try {
           const data = await getCourseBySlug(slug);
           if (data) setCourse(normalizeCourseIds(data));
-        } catch (e) {
-          console.error("Fallback getCourseBySlug failed:", e);
-        }
+        } catch (e) {}
       } finally {
         setLoading(false);
       }
@@ -633,21 +557,22 @@ const handleGenerateLesson = async () => {
 
   useEffect(() => {
     if (!currentLesson || generatingRef.current) return;
-    if (!currentLesson.content || currentLesson.content.trim().length < 100) {
+    if (!hasVideo && (!currentLesson.content || currentLesson.content.trim().length < 100)) {
       handleGenerateLesson();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentLessonId]);
+  }, [currentLessonId, hasVideo]);
+
+  useEffect(() => {
+    if (hasVideo && !hasContent && !generating) {
+      setLearningMode('video');
+    }
+  }, [hasVideo, hasContent, generating]);
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container || tocItems.length === 0) return;
     const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) setActiveHeading(entry.target.id);
-        });
-      },
+      (entries) => { entries.forEach((entry) => { if (entry.isIntersecting) setActiveHeading(entry.target.id); }); },
       { root: container, rootMargin: "-80px 0px -70% 0px", threshold: 0 }
     );
     tocItems.forEach((item) => {
@@ -663,10 +588,10 @@ const handleGenerateLesson = async () => {
     container.addEventListener("scroll", handleScroll);
     handleScroll();
     return () => container.removeEventListener("scroll", handleScroll);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hasContent, currentLesson, lessonProgress]);
+  }, [hasContent, currentLesson, lessonProgress, learningMode]);
 
   useEffect(() => {
+    setLearningMode('text'); 
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0;
       setScrollProgress(0);
@@ -687,9 +612,7 @@ const handleGenerateLesson = async () => {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 flex-col gap-4">
         <FileText className="text-gray-400" size={48} />
         <h2 className="text-2xl font-bold text-gray-900">Course Content Not Ready</h2>
-        <p className="text-gray-600 max-w-md text-center">
-          This course was generated but its lesson content is still being processed. Please check back shortly.
-        </p>
+        <p className="text-gray-600 max-w-md text-center">This course was generated but its lesson content is still being processed. Please check back shortly.</p>
         <Link href="/courses" className="text-orange-600 hover:underline font-semibold">Back to Courses</Link>
       </div>
     );
@@ -707,21 +630,37 @@ const handleGenerateLesson = async () => {
           </button>
         </div>
 
-        <div
-          className="flex-1 overflow-y-auto scroll-smooth"
-          ref={(el) => {
-            contentRef.current = el;
-            scrollContainerRef.current = el;
-          }}
-        >
+        <div className="flex-1 overflow-y-auto scroll-smooth" ref={(el) => { contentRef.current = el; scrollContainerRef.current = el; }}>
           <div className="p-6 lg:p-10 max-w-5xl mx-auto w-full">
             <div className="mb-8">
               <span className="inline-block px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-bold uppercase tracking-wide mb-3">
-                Reading Material
+                {learningMode === 'video' ? 'Video Lesson' : 'Reading Material'}
               </span>
               <h1 className="text-3xl md:text-4xl font-bold text-gray-900 mb-4">
                 {currentLesson?.title || "Lesson Content"}
               </h1>
+              
+              {hasVideo && hasContent && (
+                <div className="flex items-center gap-2 mb-4 bg-gray-100 p-1 rounded-xl w-fit">
+                  <button
+                    onClick={() => setLearningMode('text')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      learningMode === 'text' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <FileText size={16} /> Read Article
+                  </button>
+                  <button
+                    onClick={() => setLearningMode('video')}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                      learningMode === 'video' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'
+                    }`}
+                  >
+                    <PlayCircle size={16} /> Watch Video
+                  </button>
+                </div>
+              )}
+
               <div className="flex items-center gap-4 text-sm text-gray-500">
                 <span className="flex items-center gap-1">
                   <FileText size={14} /> Module {(currentLesson as any)?._moduleOrder || 1}
@@ -729,7 +668,7 @@ const handleGenerateLesson = async () => {
                 <span className="flex items-center gap-1">
                   <PlayCircle size={14} /> {currentLesson?.duration || "10 mins"}
                 </span>
-                {hasContent && !isCompleted && (
+                {hasContent && learningMode === 'text' && !isCompleted && (
                   <span className="flex items-center gap-1 text-orange-600">
                     <span className="text-xs font-medium">{Math.round(scrollProgress)}% read</span>
                   </span>
@@ -737,55 +676,66 @@ const handleGenerateLesson = async () => {
               </div>
             </div>
 
-            {hasContent && tocItems.length > 0 && (
-              <div className="mb-8 bg-orange-50/50 border border-orange-100 rounded-xl overflow-hidden transition-all">
-                <button
-                  onClick={() => setTocOpen(!tocOpen)}
-                  className="w-full flex items-center justify-between p-4 hover:bg-orange-50 transition-colors"
-                >
-                  <div className="flex items-center gap-2">
-                    <List size={18} className="text-orange-600" />
-                    <h3 className="font-bold text-gray-900">In this lesson</h3>
-                    <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-orange-100">
-                      {tocItems.length} sections
-                    </span>
+            {hasAnyContent ? (
+              <>
+                {learningMode === 'video' && hasVideo && youtubeId ? (
+                  <div className="mb-8">
+                    <div className="relative w-full overflow-hidden rounded-2xl shadow-lg border border-gray-200 bg-black" style={{ paddingBottom: '56.25%' }}>
+                      <iframe
+                        className="absolute top-0 left-0 w-full h-full"
+                        src={`https://www.youtube.com/embed/${youtubeId}?rel=0`}
+                        title={currentLesson?.title}
+                        frameBorder="0"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      ></iframe>
+                    </div>
+                    {hasContent && (
+                      <p className="text-sm text-gray-500 mt-4 text-center">
+                        Prefer reading? Switch to the{' '}
+                        <button onClick={() => setLearningMode('text')} className="text-orange-600 font-semibold hover:underline">
+                          Article view
+                        </button>.
+                      </p>
+                    )}
                   </div>
-                  {tocOpen ? (
-                    <ChevronUp size={18} className="text-gray-500" />
-                  ) : (
-                    <ChevronDown size={18} className="text-gray-500" />
-                  )}
-                </button>
-
-                {tocOpen && (
-                  <div className="px-4 pb-4 border-t border-orange-100">
-                    <nav className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-4">
-                      {tocItems.map((item) => (
-                        <button
-                          key={item.id}
-                          onClick={() => scrollToHeading(item.id)}
-                          className={`text-left text-sm py-1.5 px-3 rounded-lg transition-colors truncate ${
-                            item.level === 1 ? "font-semibold" : item.level === 2 ? "pl-6 text-gray-600" : "pl-10 text-gray-500 text-xs"
-                          } ${
-                            activeHeading === item.id
-                              ? "bg-orange-100 text-orange-800 font-medium"
-                              : "hover:bg-white hover:text-orange-700"
-                          }`}
-                        >
-                          {item.text}
+                ) : (
+                  <>
+                    {hasContent && tocItems.length > 0 && (
+                      <div className="mb-8 bg-orange-50/50 border border-orange-100 rounded-xl overflow-hidden transition-all">
+                        <button onClick={() => setTocOpen(!tocOpen)} className="w-full flex items-center justify-between p-4 hover:bg-orange-50 transition-colors">
+                          <div className="flex items-center gap-2">
+                            <List size={18} className="text-orange-600" />
+                            <h3 className="font-bold text-gray-900">In this lesson</h3>
+                            <span className="text-xs text-gray-500 bg-white px-2 py-0.5 rounded-full border border-orange-100">{tocItems.length} sections</span>
+                          </div>
+                          {tocOpen ? <ChevronUp size={18} className="text-gray-500" /> : <ChevronDown size={18} className="text-gray-500" />}
                         </button>
-                      ))}
-                    </nav>
-                  </div>
-                )}
-              </div>
-            )}
+                        {tocOpen && (
+                          <div className="px-4 pb-4 border-t border-orange-100">
+                            <nav className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-4">
+                              {tocItems.map((item) => (
+                                <button key={item.id} onClick={() => scrollToHeading(item.id)} className={`text-left text-sm py-1.5 px-3 rounded-lg transition-colors truncate ${item.level === 1 ? "font-semibold" : item.level === 2 ? "pl-6 text-gray-600" : "pl-10 text-gray-500 text-xs"} ${activeHeading === item.id ? "bg-orange-100 text-orange-800 font-medium" : "hover:bg-white hover:text-orange-700"}`}>
+                                  {item.text}
+                                </button>
+                              ))}
+                            </nav>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
-            {hasContent ? (
-              <div
-                className="bg-white border border-gray-200 rounded-2xl p-8 md:p-12 mb-8 shadow-sm prose prose-lg prose-orange max-w-none"
-                dangerouslySetInnerHTML={{ __html: renderedHtml }}
-              />
+                    {hasContent ? (
+                      <div className="bg-white border border-gray-200 rounded-2xl p-8 md:p-12 mb-8 shadow-sm prose prose-lg prose-orange max-w-none" dangerouslySetInnerHTML={{ __html: renderedHtml }} />
+                    ) : (
+                      <div className="bg-gray-50 border border-gray-200 rounded-2xl p-8 mb-8 text-center text-gray-500">
+                        <FileText size={32} className="mx-auto mb-2 text-gray-400" />
+                        <p>No written article available for this lesson. Please watch the video above.</p>
+                      </div>
+                    )}
+                  </>
+                )}
+              </>
             ) : (
               <div className="bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-100 rounded-2xl p-12 mb-8 text-center">
                 <div className="max-w-md mx-auto">
@@ -793,9 +743,7 @@ const handleGenerateLesson = async () => {
                     <>
                       <RefreshCw size={48} className="mx-auto mb-4 text-orange-500 animate-spin" />
                       <h3 className="text-xl font-bold text-gray-900 mb-2">Generating Your Lesson...</h3>
-                      <p className="text-gray-600 animate-pulse">
-                        Our AI tutor is crafting personalized content for &quot;{currentLesson?.title}&quot;. This typically takes 10–30 seconds.
-                      </p>
+                      <p className="text-gray-600 animate-pulse">Our AI tutor is crafting personalized content for &quot;{currentLesson?.title}&quot;. This typically takes 10–30 seconds.</p>
                     </>
                   ) : (
                     <>
@@ -808,56 +756,26 @@ const handleGenerateLesson = async () => {
               </div>
             )}
 
-            {/* EXAM CARD & Controls (unchanged) */}
             <div className="flex items-center justify-between pt-8 border-t border-gray-100">
-              <button
-                onClick={handlePrev}
-                disabled={!prevLesson}
-                className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
-                  prevLesson
-                    ? "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300"
-                    : "bg-gray-50 text-gray-300 cursor-not-allowed border border-transparent"
-                }`}
-              >
+              <button onClick={handlePrev} disabled={!prevLesson} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${prevLesson ? "bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300" : "bg-gray-50 text-gray-300 cursor-not-allowed border border-transparent"}`}>
                 <ChevronLeft size={20} /> Previous
               </button>
 
               {!enrolled ? (
-                <button
-                  onClick={handleMarkCompleteAndNext}
-                  disabled={actionLoading}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold ${
-                    actionLoading ? "bg-gray-200 text-gray-500" : "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/20 hover:shadow-xl"
-                  }`}
-                >
+                <button onClick={handleMarkCompleteAndNext} disabled={actionLoading} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold ${actionLoading ? "bg-gray-200 text-gray-500" : "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/20 hover:shadow-xl"}`}>
                   {actionLoading ? "Starting..." : "Start Learning"}
                 </button>
               ) : canTakeExam && isLastLesson && isCompleted ? (
-                <Link
-                  href={`/courses/${slug}/exam`}
-                  className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/20 hover:shadow-xl hover:-translate-y-0.5 transition-all"
-                >
-                  <GraduationCap size={20} />
-                  Take Final Exam
-                  <ChevronRight size={20} />
+                <Link href={`/courses/${slug}/exam`} className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-lg shadow-purple-600/20 hover:shadow-xl hover:-translate-y-0.5 transition-all">
+                  <GraduationCap size={20} /> Take Final Exam <ChevronRight size={20} />
                 </Link>
               ) : isLastLesson && isCompleted ? (
                 <div className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold bg-green-50 text-green-700 border border-green-200">
-                  <CheckCircle2 size={20} />
-                  Course Complete!
+                  <CheckCircle2 size={20} /> Course Complete!
                 </div>
               ) : (
-                <button
-                  onClick={handleMarkCompleteAndNext}
-                  disabled={actionLoading || !currentLesson || generating}
-                  className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${
-                    !actionLoading && !generating
-                      ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/20 hover:shadow-xl hover:-translate-y-0.5"
-                      : "bg-gray-100 text-gray-400 cursor-not-allowed"
-                  }`}
-                >
-                  {actionLoading ? "Saving..." : isCompleted ? "Review Again" : "Mark Complete & Next"}
-                  <ChevronRight size={20} />
+                <button onClick={handleMarkCompleteAndNext} disabled={actionLoading || !currentLesson || generating} className={`flex items-center gap-2 px-6 py-3 rounded-xl font-semibold transition-all ${!actionLoading && !generating ? "bg-gradient-to-r from-orange-600 to-amber-600 text-white shadow-lg shadow-orange-600/20 hover:shadow-xl hover:-translate-y-0.5" : "bg-gray-100 text-gray-400 cursor-not-allowed"}`}>
+                  {actionLoading ? "Saving..." : isCompleted ? "Review Again" : "Mark Complete & Next"} <ChevronRight size={20} />
                 </button>
               )}
             </div>
@@ -865,44 +783,27 @@ const handleGenerateLesson = async () => {
         </div>
       </div>
 
-      {/* SIDEBAR */}
-      <aside
-        className={`fixed inset-y-0 right-0 z-30 w-80 bg-white border-l border-gray-100 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:h-full ${
-          sidebarOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"
-        }`}
-      >
+      <aside className={`fixed inset-y-0 right-0 z-30 w-80 bg-white border-l border-gray-100 transform transition-transform duration-300 ease-in-out lg:translate-x-0 lg:static lg:h-full ${sidebarOpen ? "translate-x-0 shadow-2xl" : "translate-x-full"}`}>
         <div className="h-full flex flex-col">
           <div className="p-6 border-b border-gray-100 bg-gray-50/50">
             <h3 className="font-bold text-gray-900 mb-1 flex items-center justify-between">
               <span>Course Curriculum</span>
               {allLessonsCompleted && canTakeExam ? (
-                <Link
-                  href={`/courses/${slug}/exam`}
-                  className="ml-2 text-xs inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-1.5 rounded-full font-semibold shadow-sm"
-                >
+                <Link href={`/courses/${slug}/exam`} className="ml-2 text-xs inline-flex items-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-3 py-1.5 rounded-full font-semibold shadow-sm">
                   <GraduationCap size={12} /> Start Exam
                 </Link>
               ) : null}
             </h3>
-
-            <p className="text-xs text-gray-500">
-              {allLessonsCompleted ? "Course complete" : `${displayProgressRounded}% Completed`}
-            </p>
-
+            <p className="text-xs text-gray-500">{allLessonsCompleted ? "Course complete" : `${displayProgressRounded}% Completed`}</p>
             <div className="w-full bg-gray-200 rounded-full h-1.5 mt-2 overflow-hidden">
-              <div
-                className={`h-1.5 rounded-full transition-all duration-500 ${allLessonsCompleted ? "bg-green-500" : "bg-orange-500"}`}
-                style={{ width: `${allLessonsCompleted ? 100 : displayProgress}%` }}
-              />
+              <div className={`h-1.5 rounded-full transition-all duration-500 ${allLessonsCompleted ? "bg-green-500" : "bg-orange-500"}`} style={{ width: `${allLessonsCompleted ? 100 : displayProgress}%` }} />
             </div>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 space-y-6">
             {course.modules?.map((module: Module, modIdx) => (
               <div key={module.id || modIdx}>
-                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">
-                  Module {module.order ?? modIdx + 1}: {module.title}
-                </h4>
+                <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 px-2">Module {module.order ?? modIdx + 1}: {module.title}</h4>
                 <div className="space-y-1">
                   {module.lessons?.map((lesson: Lesson, lessIdx) => {
                     if (!lesson || (!lesson.id && !lesson.title)) return null;
@@ -912,30 +813,17 @@ const handleGenerateLesson = async () => {
                     const lessonPct = lessonProgress[lessonId] ?? 0;
 
                     return (
-                      <button
-                        key={`${module.id ?? modIdx}-${lessonId}-${lessIdx}`}
-                        onClick={() => {
-                          setCurrentLessonId(lessonId);
-                          setScrollProgress(0);
-                          setSidebarOpen(false);
-                        }}
-                        className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${
-                          isActive ? "bg-orange-50 border border-orange-100" : "hover:bg-gray-50 border border-transparent"
-                        }`}
-                      >
+                      <button key={`${module.id ?? modIdx}-${lessonId}-${lessIdx}`} onClick={() => { setCurrentLessonId(lessonId); setScrollProgress(0); setSidebarOpen(false); }} className={`w-full flex items-start gap-3 p-3 rounded-xl text-left transition-all ${isActive ? "bg-orange-50 border border-orange-100" : "hover:bg-gray-50 border border-transparent"}`}>
                         <div className={`mt-0.5 ${isLessonCompleted ? "text-green-500" : isActive ? "text-orange-500" : "text-gray-300"}`}>
                           {isLessonCompleted ? <CheckCircle2 size={18} /> : <PlayCircle size={18} />}
                         </div>
                         <div className="flex-1 min-w-0">
-                          <p className={`text-sm font-medium truncate ${isActive ? "text-orange-700" : "text-gray-700"}`}>
-                            {lesson.title || "Untitled Lesson"}
-                          </p>
+                          <p className={`text-sm font-medium truncate ${isActive ? "text-orange-700" : "text-gray-700"}`}>{lesson.title || "Untitled Lesson"}</p>
                           <div className="mt-1 flex items-center justify-between gap-3">
                             <p className="text-xs text-gray-400">{lesson.duration || "5 mins"}</p>
                             <div className="ml-2 text-xs text-gray-500 font-semibold">{Math.round(lessonPct)}%</div>
                           </div>
-
-                          {isActive && !isLessonCompleted && scrollProgress > 0 && (
+                          {isActive && !isLessonCompleted && scrollProgress > 0 && learningMode === 'text' && (
                             <div className="mt-2">
                               <div className="w-full bg-gray-200 rounded-full h-1">
                                 <div className="bg-orange-400 h-1 rounded-full transition-all duration-300" style={{ width: `${scrollProgress}%` }}></div>
@@ -958,15 +846,9 @@ const handleGenerateLesson = async () => {
                   <Award size={18} className="text-purple-600" />
                   <h4 className="text-sm font-bold text-purple-900">Final Exam Ready</h4>
                 </div>
-                <p className="text-xs text-purple-700 mb-3">
-                  You&apos;ve completed all lessons! Take the final exam to earn your certificate.
-                </p>
-                <Link
-                  href={`/courses/${slug}/exam`}
-                  className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-2.5 rounded-lg text-xs font-bold hover:shadow-lg transition-all"
-                >
-                  <GraduationCap size={14} />
-                  Start Exam
+                <p className="text-xs text-purple-700 mb-3">You&apos;ve completed all lessons! Take the final exam to earn your certificate.</p>
+                <Link href={`/courses/${slug}/exam`} className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-2.5 rounded-lg text-xs font-bold hover:shadow-lg transition-all">
+                  <GraduationCap size={14} /> Start Exam
                 </Link>
               </div>
             </div>
