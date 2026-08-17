@@ -2,7 +2,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { adminDb } from "@/lib/firebase-admin";
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile";
+
+// ✅ Replaced single MODEL with a fallback list. 
+// If Groq retires one, it automatically tries the next.
+const PREFERRED_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+];
 
 const MIN_CONTENT_CHARS = 300;
 const MAX_RETRIES = 3;
@@ -19,34 +29,72 @@ const REQUIRED_SECTIONS = [
   "Summary",
 ];
 
+// ==========================================
+// GROQ API CALL WITH MODEL FALLBACK & RATE LIMIT RETRY
+// ==========================================
 async function callGroq(system: string, user: string, opts: { temperature?: number; maxTokens?: number } = {}) {
-  const res = await fetch(GROQ_API, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
-      max_tokens: opts.maxTokens ?? MAX_TOKENS,
-      temperature: opts.temperature ?? 0.0,
-    }),
-  });
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "");
-    throw new Error(`Groq API error ${res.status}: ${txt}`);
+  // Try each model in the preferred list
+  for (const model of PREFERRED_MODELS) {
+    // Inner loop for rate limit (429) retries on the CURRENT model
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(GROQ_API, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: system },
+            { role: "user", content: user },
+          ],
+          max_tokens: opts.maxTokens ?? MAX_TOKENS,
+          temperature: opts.temperature ?? 0.0,
+        }),
+      });
+
+      // ✅ If model is retired/not found (404), break inner loop and try the next model
+      if (res.status === 404) {
+        const txt = await res.text().catch(() => "");
+        if (txt.includes("model_not_found") || txt.includes("does not exist")) {
+          console.warn(`[callGroq] Model "${model}" retired/unavailable, trying next...`);
+          lastError = new Error(`Groq model "${model}" not found`);
+          break; 
+        }
+      }
+
+      // ✅ If rate limited (429), wait and retry the SAME model
+      if (res.status === 429) {
+        const txt = await res.text().catch(() => "");
+        const match = txt.match(/try again in ([\d.]+)s/);
+        const waitSeconds = match ? parseFloat(match[1]) : 2;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000 + 500));
+          continue; 
+        }
+        throw new Error(`Groq API rate limit exceeded for ${model}: ${txt}`);
+      }
+
+      if (!res.ok) {
+        const txt = await res.text().catch(() => "");
+        throw new Error(`Groq API error ${res.status} for ${model}: ${txt}`);
+      }
+
+      const j = await res.json();
+      const raw = j?.choices?.[0]?.message?.content;
+      return typeof raw === "string" ? raw.trim() : JSON.stringify(raw);
+    }
   }
 
-  const j = await res.json();
-  const raw = j?.choices?.[0]?.message?.content;
-  return typeof raw === "string" ? raw.trim() : JSON.stringify(raw);
+  throw lastError || new Error("All Groq models failed or were unavailable.");
 }
 
+// ==========================================
+// UTILITIES
+// ==========================================
 function extractBetweenMarkers(raw: string) {
   if (!raw) return "";
   const start = raw.indexOf("<<BEGIN_LESSON>>");
@@ -109,6 +157,9 @@ Rewrite the lesson now and ensure all required headers and runnable examples are
   return { lessonText: `<<BEGIN_LESSON>>\nNEEDS_REVIEW: Automatic generation failed for ${lessonTitle}\n<<END_LESSON>>`, raw: "" };
 }
 
+// ==========================================
+// ROUTE HANDLER
+// ==========================================
 // ✅ FIX: Next.js 15 requires params to be a Promise
 export async function POST(req: NextRequest, context: { params: Promise<{ courseId: string }> }) {
   try {
