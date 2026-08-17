@@ -2,7 +2,18 @@
 import fetch from "node-fetch"; // in Next.js route you can use global fetch; import here for scripts compatibility
 
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile";
+
+// ✅ Replaced single MODEL with a fallback list. 
+// If Groq retires one, it automatically tries the next.
+const PREFERRED_MODELS = [
+  "openai/gpt-oss-120b",
+  "openai/gpt-oss-20b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "meta-llama/llama-4-maverick-17b-128e-instruct",
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+];
+
 const MIN_TOTAL_CHARS = 400; // require longer full lesson
 const REQUIRED_HEADERS = [
   "Learning objectives:",
@@ -31,32 +42,67 @@ function findMissingHeaders(s: string) {
   return missing;
 }
 
+// ==========================================
+// GROQ API CALL WITH MODEL FALLBACK & RATE LIMIT RETRY
+// ==========================================
 async function groqCall(systemPrompt: string, userPrompt: string, maxTokens = 1600, temperature = 0.0) {
-  const res = await fetch(GROQ_API, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user", content: userPrompt },
-      ],
-      max_tokens: maxTokens,
-      temperature,
-    }),
-  });
+  let lastError: Error | null = null;
 
-  if (!res.ok) {
-    const txt = await res.text();
-    throw new Error(`Groq API error ${res.status}: ${txt}`);
+  // Try each model in the preferred list
+  for (const model of PREFERRED_MODELS) {
+    // Inner loop for rate limit (429) retries on the CURRENT model
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const res = await fetch(GROQ_API, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: maxTokens,
+          temperature,
+        }),
+      });
+
+      // ✅ If model is retired/not found (404), break inner loop and try the next model
+      if (res.status === 404) {
+        const txt = await res.text().catch(() => "");
+        if (txt.includes("model_not_found") || txt.includes("does not exist")) {
+          console.warn(`[groqCall] Model "${model}" retired/unavailable, trying next...`);
+          lastError = new Error(`Groq model "${model}" not found`);
+          break; 
+        }
+      }
+
+      // ✅ If rate limited (429), wait and retry the SAME model
+      if (res.status === 429) {
+        const txt = await res.text().catch(() => "");
+        const match = txt.match(/try again in ([\d.]+)s/);
+        const waitSeconds = match ? parseFloat(match[1]) : 2;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, waitSeconds * 1000 + 500));
+          continue; 
+        }
+        throw new Error(`Groq API rate limit exceeded for ${model}: ${txt}`);
+      }
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Groq API error ${res.status} for ${model}: ${txt}`);
+      }
+      
+      // ✅ Cast the JSON response to `any` so TypeScript allows accessing `.choices`
+      const json = (await res.json()) as any;
+      return String(json?.choices?.[0]?.message?.content ?? "").trim();
+    }
   }
-  
-  // ✅ FIX: Cast the JSON response to `any` so TypeScript allows accessing `.choices`
-  const json = (await res.json()) as any;
-  return String(json?.choices?.[0]?.message?.content ?? "").trim();
+
+  throw lastError || new Error("All Groq models failed or were unavailable.");
 }
 
 /**
