@@ -10,7 +10,16 @@ interface AIGeneratedCourse {
   modules: any[];
 }
 
+// ✅ Fallback list to prevent 404 model crashes
+const PREFERRED_MODELS = [
+  "openai/gpt-oss-120b",
+  "meta-llama/llama-4-scout-17b-16e-instruct",
+  "llama-3.1-8b-instant",
+  "llama-3.3-70b-versatile",
+];
+
 const topicsByCategory = [
+  // Original 12 Courses
   { topic: "Complete Web Development with React and Next.js", category: "Web Development" },
   { topic: "Full-Stack JavaScript with Node.js and Express", category: "Web Development" },
   { topic: "Python for Data Science and Machine Learning", category: "Data Science" },
@@ -23,6 +32,15 @@ const topicsByCategory = [
   { topic: "Network Security and Penetration Testing", category: "Cybersecurity" },
   { topic: "AWS Cloud Computing and Serverless Architecture", category: "Cloud Computing" },
   { topic: "Microsoft Azure Fundamentals and Cloud Services", category: "Cloud Computing" },
+
+  // 🤖 7 NEW Artificial Intelligence Courses
+  { topic: "Generative AI and Large Language Models (LLMs)", category: "Artificial Intelligence" },
+  { topic: "Prompt Engineering for AI Applications", category: "Artificial Intelligence" },
+  { topic: "Retrieval-Augmented Generation (RAG) with Vector Databases", category: "Artificial Intelligence" },
+  { topic: "Building Autonomous AI Agents with LangChain", category: "Artificial Intelligence" },
+  { topic: "Computer Vision and Image Recognition with OpenCV", category: "Artificial Intelligence" },
+  { topic: "Fine-Tuning Open Source LLMs like Llama and Mistral", category: "Artificial Intelligence" },
+  { topic: "MLOps: Deploying and Scaling AI Models in Production", category: "Artificial Intelligence" },
 ];
 
 // ✅ Helper: Extract wait time from Groq's rate limit error message
@@ -31,64 +49,79 @@ function extractWaitTime(errorMessage: string): number {
   return match ? parseFloat(match[1]) + 2 : 10; // Add 2 second buffer
 }
 
-// ✅ Helper: Call Groq with automatic retry on rate limits
+// ✅ Helper: Call Groq with automatic model fallback (404) and retry on rate limits (429)
 async function callGroqWithRetry(
   prompt: string,
   maxRetries: number = 3
 ): Promise<any> {
-  let attempt = 0;
-  
-  while (attempt < maxRetries) {
-    try {
-      const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [{ role: "system", content: prompt }],
-          response_format: { type: "json_object" },
-          temperature: 0.3,
-          max_tokens: 4096,
-        }),
-      });
+  let lastError: Error | null = null;
 
-      if (!aiResponse.ok) {
-        const errorData = await aiResponse.json().catch(() => ({}));
-        const errorMessage = errorData?.error?.message || aiResponse.statusText;
-        
-        // ✅ Detect rate limit error (429)
-        if (aiResponse.status === 429 || errorMessage.toLowerCase().includes("rate limit")) {
-          attempt++;
-          const waitTime = extractWaitTime(errorMessage);
-          console.warn(`⏱️ Rate limited. Waiting ${waitTime}s before retry ${attempt}/${maxRetries}...`);
+  for (const model of PREFERRED_MODELS) {
+    let attempt = 0;
+    
+    while (attempt < maxRetries) {
+      try {
+        const aiResponse = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.GROQ_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model, // ✅ Uses dynamic model from fallback list
+            messages: [{ role: "system", content: prompt }],
+            response_format: { type: "json_object" },
+            temperature: 0.3,
+            max_tokens: 4096,
+          }),
+        });
+
+        // ✅ If model is retired/not found (404), break inner loop and try the next model
+        if (aiResponse.status === 404) {
+          const txt = await aiResponse.text().catch(() => "");
+          if (txt.includes("model_not_found") || txt.includes("does not exist")) {
+            console.warn(`[seed] Model "${model}" retired/unavailable, trying next...`);
+            lastError = new Error(`Model ${model} not found`);
+            break; 
+          }
+        }
+
+        if (!aiResponse.ok) {
+          const errorData = await aiResponse.json().catch(() => ({}));
+          const errorMessage = errorData?.error?.message || aiResponse.statusText;
           
-          if (attempt >= maxRetries) {
-            throw new Error(`Rate limit exceeded after ${maxRetries} retries: ${errorMessage}`);
+          // ✅ Detect rate limit error (429)
+          if (aiResponse.status === 429 || errorMessage.toLowerCase().includes("rate limit")) {
+            attempt++;
+            const waitTime = extractWaitTime(errorMessage);
+            console.warn(`⏱️ Rate limited on ${model}. Waiting ${waitTime}s before retry ${attempt}/${maxRetries}...`);
+            
+            if (attempt >= maxRetries) {
+              throw new Error(`Rate limit exceeded after ${maxRetries} retries: ${errorMessage}`);
+            }
+            
+            // Wait the requested time plus a small buffer
+            await new Promise((r) => setTimeout(r, waitTime * 1000));
+            continue; // Retry the request with the SAME model
           }
           
-          // Wait the requested time plus a small buffer
-          await new Promise((r) => setTimeout(r, waitTime * 1000));
-          continue; // Retry the request
+          throw new Error(`Groq API failed: ${errorMessage}`);
         }
-        
-        throw new Error(`Groq API failed: ${errorMessage}`);
-      }
 
-      // Success — return the data
-      return await aiResponse.json();
-      
-    } catch (error: any) {
-      // If it's our intentional retry throw, let it bubble up
-      if (error.message.includes("Rate limit exceeded after")) {
+        // Success — return the data
+        return await aiResponse.json();
+        
+      } catch (error: any) {
+        // If it's our intentional retry throw, let it bubble up
+        if (error.message.includes("Rate limit exceeded after") || error.message.includes("not found")) {
+          throw error;
+        }
+        // Other errors (network, etc.) — throw immediately
         throw error;
       }
-      // Other errors (network, etc.) — throw immediately
-      throw error;
     }
   }
+  throw lastError || new Error("All Groq models failed or were unavailable.");
 }
 
 export async function seedInitialCourses() {
@@ -183,10 +216,12 @@ Structure:
   console.log(`\n🎉 Seeding complete! Added courses across all categories.`);
 }
 
+// ✅ Added "Artificial Intelligence" thumbnail
 function getThumbnailForCategory(category: string): string {
   const thumbnails: Record<string, string> = {
     "Web Development": "https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=800&auto=format&fit=crop&q=60",
     "Data Science": "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop&q=60",
+    "Artificial Intelligence": "https://images.unsplash.com/photo-1677442136019-21780ecad995?w=800&auto=format&fit=crop&q=60",
     "Mobile Development": "https://images.unsplash.com/photo-1512941937669-90a1b58e7e9c?w=800&auto=format&fit=crop&q=60",
     "UI/UX Design": "https://images.unsplash.com/photo-1561070791-2526d30994b5?w=800&auto=format&fit=crop&q=60",
     "Cybersecurity": "https://images.unsplash.com/photo-1550751827-4bd374c3f58b?w=800&auto=format&fit=crop&q=60",
